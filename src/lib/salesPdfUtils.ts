@@ -24,10 +24,13 @@ export type GroupedSaleSession = {
 }
 
 export type SalesBillBreakdown = {
+  id?: string
   invoiceNumber: string | null
   date: string
   items: { name: string, quantity: number, rate: number, total: number }[]
   grandTotal: number
+  remarks?: string | null
+  partial_payment?: number
 }
 
 export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang?: 'en' | 'te'): Promise<SalesBillBreakdown[]> => {
@@ -47,10 +50,13 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
     }))
     
     return {
+      id: fb.id,
       invoiceNumber: fb.invoice_number,
       date: fb.date,
       items: formattedItems,
-      grandTotal: fb.total_amount
+      grandTotal: fb.total_amount,
+      remarks: fb.remarks,
+      partial_payment: fb.partial_payment
     }
   }) || []
 

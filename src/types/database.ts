@@ -24,6 +24,7 @@ export type Material = {
   name_te?: string | null
   category: string
   category_te?: string | null
+  default_cost: number
   created_at: string
 }
 

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS public.materials (
     name_te TEXT,
     category TEXT NOT NULL,
     category_te TEXT,
+    default_cost DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

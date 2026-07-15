@@ -21,6 +21,7 @@ export function Settings() {
   const [formCategory, setFormCategory] = useState("")
   const [formNameTe, setFormNameTe] = useState("")
   const [formCategoryTe, setFormCategoryTe] = useState("")
+  const [formDefaultCost, setFormDefaultCost] = useState("")
 
   useEffect(() => {
     if (document.documentElement.classList.contains("dark")) {
@@ -48,12 +49,18 @@ export function Settings() {
     e.preventDefault()
     if (!formName.trim() || !formCategory.trim()) return toast.error(t("errFieldsRequired", lang))
     
+    const cost = parseFloat(formDefaultCost)
+    if (isNaN(cost) || cost < 0) {
+      return toast.error("Please enter a valid default cost")
+    }
+
     try {
       const payload = {
         name: formName,
         name_te: formNameTe,
         category: formCategory,
-        category_te: formCategoryTe
+        category_te: formCategoryTe,
+        default_cost: cost
       }
       if (editingItem) {
         await supabase.from('materials').update(payload).eq('id', editingItem.id)
@@ -87,12 +94,14 @@ export function Settings() {
       setFormNameTe(item.name_te || "")
       setFormCategory(item.category)
       setFormCategoryTe(item.category_te || "")
+      setFormDefaultCost(item.default_cost !== undefined && item.default_cost !== null ? String(item.default_cost) : "")
     } else {
       setEditingItem(null)
       setFormName("")
       setFormNameTe("")
       setFormCategory("")
       setFormCategoryTe("")
+      setFormDefaultCost("")
     }
     setIsModalOpen(true)
   }
@@ -219,6 +228,7 @@ export function Settings() {
                     <tr>
                       <th className="px-4 py-3">{t("category", lang)}</th>
                       <th className="px-4 py-3">{t("name", lang)}</th>
+                      <th className="px-4 py-3 text-right">{lang === 'te' ? "డిఫాల్ట్ ధర (₹)" : "Default Cost (₹)"}</th>
                       <th className="px-4 py-3 text-right">{t("actions", lang)}</th>
                     </tr>
                   </thead>
@@ -227,6 +237,7 @@ export function Settings() {
                       <tr key={m.id} className="hover:bg-muted/30">
                         <td className="px-4 py-3 font-medium text-muted-foreground">{lang === 'te' && m.category_te ? m.category_te : m.category}</td>
                         <td className="px-4 py-3 font-semibold">{lang === 'te' && m.name_te ? m.name_te : m.name}</td>
+                        <td className="px-4 py-3 text-right font-semibold">₹{m.default_cost !== undefined && m.default_cost !== null ? Number(m.default_cost).toFixed(2) : "0.00"}</td>
                         <td className="px-4 py-3 text-right">
                           <button onClick={() => openModal(m)} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded mr-1"><Edit2 className="w-4 h-4" /></button>
                           <button onClick={() => handleDeleteItem(m.id, m.name)} className="text-red-600 hover:bg-red-50 p-1.5 rounded"><Trash2 className="w-4 h-4" /></button>
@@ -234,7 +245,7 @@ export function Settings() {
                       </tr>
                     ))}
                     {filteredMaterials.length === 0 && (
-                      <tr><td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">No items found.</td></tr>
+                      <tr><td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">No items found.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -299,6 +310,18 @@ export function Settings() {
                   value={formCategoryTe}
                   onChange={e => setFormCategoryTe(e.target.value)}
                   placeholder="ఉదా. బీర్ బాటిల్స్"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">{lang === 'te' ? "డిఫాల్ట్ ధర (₹) *" : "Default Cost (₹) *"}</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  className="w-full border p-2 rounded"
+                  value={formDefaultCost}
+                  onChange={e => setFormDefaultCost(e.target.value)}
+                  placeholder="e.g. 150.00"
+                  required
                 />
               </div>
               

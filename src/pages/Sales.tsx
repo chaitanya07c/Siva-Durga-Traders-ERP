@@ -118,7 +118,9 @@ export function Sales() {
     if (selectedItems.some(i => i.name === itemName)) {
       return toast.error("This item has already been added.")
     }
-    setSelectedItems(prev => [...prev, { name: itemName, quantity: 0, rate: 0, total: 0 }])
+    const mat = availableMaterials.find(m => m.name === itemName)
+    const defaultRate = mat && mat.default_cost !== undefined && mat.default_cost !== null ? Number(mat.default_cost) : 0
+    setSelectedItems(prev => [...prev, { name: itemName, quantity: 0, rate: defaultRate, total: 0 }])
     setIsItemModalOpen(false)
     setItemSearch("")
   }

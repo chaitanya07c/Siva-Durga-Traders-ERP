@@ -22,6 +22,13 @@ export function SalesPayments() {
   const [paymentModal, setPaymentModal] = useState<GroupedSaleSession | null>(null)
   const [partialPayment, setPartialPayment] = useState<number>(0)
   const [exportPromptSession, setExportPromptSession] = useState<GroupedSaleSession | null>(null)
+  
+  // Edit Invoice states
+  const [editingInvoice, setEditingInvoice] = useState<SalesBillBreakdown | null>(null)
+  const [editInvoiceDate, setEditInvoiceDate] = useState("")
+  const [editInvoiceRemarks, setEditInvoiceRemarks] = useState("")
+  const [editInvoicePartialPayment, setEditInvoicePartialPayment] = useState(0)
+  const [editInvoiceItems, setEditInvoiceItems] = useState<{ name: string, quantity: number, rate: number, total: number }[]>([])
 
   useEffect(() => {
     loadSessions()
@@ -149,6 +156,76 @@ export function SalesPayments() {
       setDetailsModal({ session, bills })
     } catch (err: any) {
       toast.error("Failed to load details")
+    }
+  }
+
+  const handleEditInvoiceInitiate = (bill: SalesBillBreakdown) => {
+    setEditingInvoice(bill)
+    setEditInvoiceDate(bill.date)
+    setEditInvoiceRemarks(bill.remarks || "")
+    setEditInvoicePartialPayment(bill.partial_payment || 0)
+    setEditInvoiceItems(bill.items.map(item => ({ ...item })))
+  }
+
+  const handleEditInvoiceItemChange = (index: number, field: 'quantity' | 'rate', value: number) => {
+    setEditInvoiceItems(prev => {
+      const copy = [...prev]
+      copy[index] = { ...copy[index], [field]: value }
+      copy[index].total = Number((copy[index].quantity * copy[index].rate).toFixed(2))
+      return copy
+    })
+  }
+
+  const handleSaveEditedInvoice = async () => {
+    if (!editingInvoice) return
+    try {
+      const totalAmount = editInvoiceItems.reduce((sum, item) => sum + item.total, 0)
+
+      // Reconstruct items JSONB mapping item names to their details
+      const itemsJson = editInvoiceItems.reduce((acc, curr) => ({
+        ...acc,
+        [curr.name]: curr
+      }), {})
+
+      // Update sales row in Supabase
+      const { error } = await supabase
+        .from('sales')
+        .update({
+          date: editInvoiceDate,
+          total_amount: totalAmount,
+          remarks: editInvoiceRemarks,
+          partial_payment: editInvoicePartialPayment,
+          items: itemsJson
+        })
+        .eq('id', editingInvoice.id)
+
+      if (error) throw error
+
+      toast.success("Sales Invoice updated successfully!")
+      setEditingInvoice(null)
+
+      // Reload lists and summary cards
+      await loadSessions()
+
+      // Refresh details modal
+      if (detailsModal) {
+        const { data: updatedSales } = await supabase
+          .from('sales')
+          .select('total_amount')
+          .in('id', detailsModal.session.bill_ids)
+
+        const newOverallTotal = updatedSales?.reduce((sum, s) => sum + s.total_amount, 0) || 0
+
+        const updatedSession = {
+          ...detailsModal.session,
+          overallTotal: newOverallTotal
+        }
+
+        const bills = await fetchSalesBillBreakdowns(updatedSession, lang)
+        setDetailsModal({ session: updatedSession, bills })
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update invoice")
     }
   }
 
@@ -309,8 +386,16 @@ export function SalesPayments() {
               <div className="space-y-4">
                 {detailsModal.bills.map((bill, index) => (
                   <div key={index} className="bg-card border rounded-lg overflow-hidden shadow-sm">
-                    <div className="bg-slate-100 px-4 py-2 border-b flex justify-between font-semibold">
-                      <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''}</span>
+                    <div className="bg-slate-100 px-4 py-2 border-b flex justify-between items-center font-semibold">
+                      <div className="flex items-center gap-2">
+                        <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''}</span>
+                        <button
+                          onClick={() => handleEditInvoiceInitiate(bill)}
+                          className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
+                        >
+                          Edit
+                        </button>
+                      </div>
                       <span>₹{formatInr(bill.grandTotal)}</span>
                     </div>
                     <div className="p-4">
@@ -471,6 +556,112 @@ export function SalesPayments() {
               </button>
               <button onClick={() => setExportPromptSession(null)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium mt-2">
                 {t("close", lang)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Invoice Modal */}
+      {editingInvoice && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-background w-full max-w-lg rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b bg-slate-50 flex justify-between items-center sticky top-0 bg-background z-10">
+              <div>
+                <h2 className="text-xl font-bold">Edit Invoice</h2>
+                <p className="text-xs text-muted-foreground">{editingInvoice.invoiceNumber ? `Invoice #${editingInvoice.invoiceNumber}` : 'Edit Invoice'}</p>
+              </div>
+              <button onClick={() => setEditingInvoice(null)} className="text-slate-400 hover:text-slate-600 text-lg font-medium">✕</button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1">Date</label>
+                <input 
+                  type="date"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editInvoiceDate}
+                  onChange={e => setEditInvoiceDate(e.target.value)}
+                />
+              </div>
+
+              {/* Items Section */}
+              <div className="space-y-2 border-t pt-3">
+                <h3 className="text-sm font-bold text-slate-800 mb-1">Items Breakdown</h3>
+                <div className="bg-slate-50 p-3 rounded-lg border space-y-3">
+                  <div className="grid grid-cols-3 gap-2 text-xs font-bold text-slate-500 border-b pb-1">
+                    <div>Item</div>
+                    <div className="text-center">Qty</div>
+                    <div className="text-center">Rate (₹)</div>
+                  </div>
+                  {editInvoiceItems.map((item, idx) => (
+                    <div key={idx} className="grid grid-cols-3 gap-2 items-center">
+                      <div className="text-xs font-medium text-slate-800 truncate">{item.name}</div>
+                      <input 
+                        type="number"
+                        className="border p-1 rounded text-xs text-center font-medium bg-background"
+                        value={item.quantity || ''}
+                        onChange={e => handleEditInvoiceItemChange(idx, 'quantity', Number(e.target.value))}
+                        placeholder="0"
+                      />
+                      <input 
+                        type="number"
+                        step="0.01"
+                        className="border p-1 rounded text-xs text-center font-medium bg-background"
+                        value={item.rate || ''}
+                        onChange={e => handleEditInvoiceItemChange(idx, 'rate', Number(e.target.value))}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t pt-3">
+                <label className="block text-xs font-semibold text-muted-foreground mb-1">Partial Payment / Received (₹)</label>
+                <input 
+                  type="number"
+                  className="w-full border p-2 rounded text-sm font-semibold"
+                  value={editInvoicePartialPayment || ''}
+                  onChange={e => setEditInvoicePartialPayment(Number(e.target.value))}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1">Remarks</label>
+                <textarea 
+                  className="w-full border p-2 rounded text-xs"
+                  rows={2}
+                  value={editInvoiceRemarks}
+                  onChange={e => setEditInvoiceRemarks(e.target.value)}
+                  placeholder="Enter remarks..."
+                />
+              </div>
+
+              <div className="bg-slate-100 p-3 rounded-lg border space-y-1.5 text-sm font-semibold">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Subtotal Amount:</span>
+                  <span>₹{formatInr(editInvoiceItems.reduce((sum, item) => sum + item.total, 0))}</span>
+                </div>
+                <div className="flex justify-between text-primary text-base font-bold">
+                  <span>Grand Total:</span>
+                  <span>₹{formatInr(editInvoiceItems.reduce((sum, item) => sum + item.total, 0))}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t bg-slate-50 flex gap-3">
+              <button 
+                onClick={() => setEditingInvoice(null)} 
+                className="flex-1 py-2.5 border rounded-xl font-semibold hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSaveEditedInvoice} 
+                className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-sm"
+              >
+                Save Updates
               </button>
             </div>
           </div>

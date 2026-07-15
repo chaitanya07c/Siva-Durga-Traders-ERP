@@ -2,8 +2,18 @@ import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search } from "lucide-react"
 import { toast } from "sonner"
-import { fetchBillBreakdowns, generateCombinedPDF, shareWhatsApp, formatQuantity } from "@/lib/pdfUtils"
+import { 
+  fetchBillBreakdowns, 
+  generateCombinedPDF, 
+  shareWhatsApp, 
+  formatQuantity,
+  belongsToPredefinedGroup,
+  getPredefinedGroupShops,
+  generateCombinedGroupPDF,
+  shareCombinedGroupWhatsApp
+} from "@/lib/pdfUtils"
 import type { GroupedSession, BillBreakdown } from "@/lib/pdfUtils"
+import type { Shop } from "@/types/database"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 
@@ -17,15 +27,23 @@ export function Payments() {
   const [overallPending, setOverallPending] = useState(0)
   const [overallCompleted, setOverallCompleted] = useState(0)
 
+  const [shops, setShops] = useState<Shop[]>([])
   const [detailsModal, setDetailsModal] = useState<{ session: GroupedSession, bills: BillBreakdown[] } | null>(null)
   
   const [paymentModal, setPaymentModal] = useState<GroupedSession | null>(null)
   const [partialPayment, setPartialPayment] = useState<number>(0)
   const [exportPromptSession, setExportPromptSession] = useState<GroupedSession | null>(null)
+  const [groupExportPrompt, setGroupExportPrompt] = useState<{ shopsInGroup: Shop[], targetShop: Shop, label: string } | null>(null)
 
   useEffect(() => {
     loadSessions()
+    loadShops()
   }, [activeTab])
+
+  const loadShops = async () => {
+    const { data } = await supabase.from('shops').select('*')
+    if (data) setShops(data)
+  }
 
   const loadSessions = async () => {
     const { data } = await supabase
@@ -125,6 +143,118 @@ export function Payments() {
       setDetailsModal({ session, bills })
     } catch (err: any) {
       toast.error("Failed to load details")
+    }
+  }
+
+  const handleCombinedGroupInitiate = async (session: GroupedSession) => {
+    const shop = shops.find(s => s.id === session.shop_id)
+    if (!shop) return
+    const groupShops = getPredefinedGroupShops(shops, shop)
+    if (groupShops.length === 0) return
+    setGroupExportPrompt({
+      shopsInGroup: groupShops,
+      targetShop: shop,
+      label: lang === 'te' ? "కంబైన్డ్ బిల్లు" : "Combined Bill"
+    })
+  }
+
+  const handleCombinedAkividuInitiate = async (session: GroupedSession) => {
+    const shop = shops.find(s => s.id === session.shop_id)
+    if (!shop) return
+    const akividuShops = shops.filter(s => s.type === 'Akividu Wine')
+    setGroupExportPrompt({
+      shopsInGroup: akividuShops,
+      targetShop: shop,
+      label: lang === 'te' ? "ఆకివీడు కంబైన్డ్ బిల్లు" : "Combined Akividu Bill"
+    })
+  }
+
+  // Edit Bill states and handlers
+  const [editingBill, setEditingBill] = useState<BillBreakdown | null>(null)
+  const [editBillDate, setEditBillDate] = useState("")
+  const [editBillPrevBalance, setEditBillPrevBalance] = useState(0)
+  const [editBillAdvance, setEditBillAdvance] = useState(0)
+  const [editBillRemarks, setEditBillRemarks] = useState("")
+  const [editBillItems, setEditBillItems] = useState<{ id?: string, name: string, quantity: number, rate: number, total: number }[]>([])
+
+  const handleEditBillInitiate = (bill: BillBreakdown) => {
+    setEditingBill(bill)
+    setEditBillDate(bill.date)
+    setEditBillPrevBalance(bill.previous_balance || 0)
+    setEditBillAdvance(bill.advance || 0)
+    setEditBillRemarks(bill.remarks || "")
+    setEditBillItems(bill.items.map(item => ({ ...item })))
+  }
+
+  const handleEditBillItemChange = (index: number, field: 'quantity' | 'rate', value: number) => {
+    setEditBillItems(prev => {
+      const copy = [...prev]
+      copy[index] = { ...copy[index], [field]: value }
+      copy[index].total = Number((copy[index].quantity * copy[index].rate).toFixed(2))
+      return copy
+    })
+  }
+
+  const handleSaveEditedBill = async () => {
+    if (!editingBill) return
+    try {
+      const subTotal = editBillItems.reduce((sum, item) => sum + item.total, 0)
+      const grandTotal = subTotal + editBillPrevBalance - editBillAdvance
+
+      // 1. Update purchase
+      const { error: purchaseError } = await supabase
+        .from('purchases')
+        .update({
+          date: editBillDate,
+          previous_balance: editBillPrevBalance,
+          advance: editBillAdvance,
+          grand_total: grandTotal,
+          remarks: editBillRemarks
+        })
+        .eq('id', editingBill.id)
+
+      if (purchaseError) throw purchaseError
+
+      // 2. Update purchase items
+      for (const item of editBillItems) {
+        if (item.id) {
+          const { error: itemError } = await supabase
+            .from('purchase_items')
+            .update({
+              quantity: item.quantity,
+              rate: item.rate,
+              total: item.total
+            })
+            .eq('id', item.id)
+          if (itemError) throw itemError
+        }
+      }
+
+      toast.success("Bill updated successfully!")
+      setEditingBill(null)
+      
+      // Reload main page list/cards
+      await loadSessions()
+      
+      // Refresh active details modal content
+      if (detailsModal) {
+        const { data: updatedPurchases } = await supabase
+          .from('purchases')
+          .select('grand_total')
+          .in('id', detailsModal.session.bill_ids)
+          
+        const newOverallTotal = updatedPurchases?.reduce((sum, p) => sum + p.grand_total, 0) || 0
+
+        const updatedSession = {
+          ...detailsModal.session,
+          overallTotal: newOverallTotal
+        }
+        
+        const { bills } = await fetchBillBreakdowns(updatedSession, lang)
+        setDetailsModal({ session: updatedSession, bills })
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update bill")
     }
   }
 
@@ -243,6 +373,24 @@ export function Payments() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center justify-end gap-2">
+                        {session.status === 'Pending' && belongsToPredefinedGroup(session.shop_name) && (
+                          <button 
+                            onClick={() => handleCombinedGroupInitiate(session)} 
+                            className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-3 py-1.5 rounded flex items-center text-xs font-semibold shadow-sm"
+                          >
+                            Combined Bill
+                          </button>
+                        )}
+
+                        {session.status === 'Pending' && session.shop_type === 'Akividu Wine' && (
+                          <button 
+                            onClick={() => handleCombinedAkividuInitiate(session)} 
+                            className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded flex items-center text-xs font-semibold shadow-sm"
+                          >
+                            Combined Akividu Bill
+                          </button>
+                        )}
+
                         <button 
                           onClick={() => handleViewDetails(session)} 
                           className="text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded flex items-center text-xs font-medium"
@@ -309,8 +457,16 @@ export function Payments() {
                       globalBillCounter++
                       return (
                         <div key={index} className="bg-card border rounded-lg overflow-hidden shadow-sm">
-                          <div className="bg-slate-100 px-4 py-2 border-b flex justify-between font-semibold">
-                            <span>Bill {globalBillCounter} {bill.billNumber ? `(#${bill.billNumber})` : ''}</span>
+                          <div className="bg-slate-100 px-4 py-2 border-b flex justify-between items-center font-semibold">
+                            <div className="flex items-center gap-2">
+                              <span>Bill {globalBillCounter} {bill.billNumber ? `(#${bill.billNumber})` : ''}</span>
+                              <button
+                                onClick={() => handleEditBillInitiate(bill)}
+                                className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
+                              >
+                                Edit
+                              </button>
+                            </div>
                             <span>₹{formatInr(bill.grandTotal)}</span>
                           </div>
                           <div className="p-4">
@@ -474,6 +630,173 @@ export function Payments() {
               </button>
               <button onClick={() => setExportPromptSession(null)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium mt-2">
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Predefined Group / Akividu Export Prompt Modal */}
+      {groupExportPrompt && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-background w-full max-w-sm rounded-2xl shadow-xl overflow-hidden flex flex-col items-center p-8 text-center">
+            <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mb-4">
+              <Printer className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">{groupExportPrompt.label}</h2>
+            <p className="text-muted-foreground text-sm mb-8">
+              {lang === 'te' 
+                ? "కంబైన్డ్ పిడిఎఫ్ ని డౌన్‌లోడ్ చేయండి, ప్రింట్ చేయండి లేదా షేర్ చేయండి." 
+                : "Download, print, or share the combined PDF for this group."}
+            </p>
+            
+            <div className="w-full flex flex-col gap-3">
+              <button 
+                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'download', lang, groupExportPrompt.targetShop)} 
+                className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors"
+              >
+                <Download className="w-5 h-5 mr-2" /> {lang === 'te' ? "డౌన్‌లోడ్ PDF" : "Download PDF"}
+              </button>
+              <button 
+                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'print', lang, groupExportPrompt.targetShop)} 
+                className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors"
+              >
+                <Printer className="w-5 h-5 mr-2" /> {lang === 'te' ? "ప్రింట్ బిల్" : "Print Bill"}
+              </button>
+              <button 
+                onClick={() => shareCombinedGroupWhatsApp(groupExportPrompt.shopsInGroup, lang, groupExportPrompt.targetShop)} 
+                className="w-full flex items-center justify-center py-3 bg-green-50 text-green-700 hover:bg-green-100 rounded-xl font-medium transition-colors"
+              >
+                <Share2 className="w-5 h-5 mr-2" /> {lang === 'te' ? "వాట్సాప్ ద్వారా షేర్ చేయండి" : "Share via WhatsApp"}
+              </button>
+              <button 
+                onClick={() => setGroupExportPrompt(null)} 
+                className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium mt-2"
+              >
+                {lang === 'te' ? "మూసివేయండి" : "Close"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Bill Modal */}
+      {editingBill && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-background w-full max-w-lg rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b bg-slate-50 flex justify-between items-center sticky top-0 bg-background z-10">
+              <div>
+                <h2 className="text-xl font-bold">Edit Bill Info</h2>
+                <p className="text-xs text-muted-foreground">{editingBill.billNumber ? `Bill #${editingBill.billNumber}` : 'Edit Bill'}</p>
+              </div>
+              <button onClick={() => setEditingBill(null)} className="text-slate-400 hover:text-slate-600 text-lg font-medium">✕</button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1">Date</label>
+                <input 
+                  type="date"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editBillDate}
+                  onChange={e => setEditBillDate(e.target.value)}
+                />
+              </div>
+
+              {/* Items Section */}
+              <div className="space-y-2 border-t pt-3">
+                <h3 className="text-sm font-bold text-slate-800 mb-1">Items Breakdown</h3>
+                <div className="bg-slate-50 p-3 rounded-lg border space-y-3">
+                  <div className="grid grid-cols-3 gap-2 text-xs font-bold text-slate-500 border-b pb-1">
+                    <div>Item</div>
+                    <div className="text-center">Qty</div>
+                    <div className="text-center">Rate (₹)</div>
+                  </div>
+                  {editBillItems.map((item, idx) => (
+                    <div key={idx} className="grid grid-cols-3 gap-2 items-center">
+                      <div className="text-xs font-medium text-slate-800 truncate">{item.name}</div>
+                      <input 
+                        type="number"
+                        className="border p-1 rounded text-xs text-center font-medium bg-background"
+                        value={item.quantity || ''}
+                        onChange={e => handleEditBillItemChange(idx, 'quantity', Number(e.target.value))}
+                        placeholder="0"
+                      />
+                      <input 
+                        type="number"
+                        step="0.01"
+                        className="border p-1 rounded text-xs text-center font-medium bg-background"
+                        value={item.rate || ''}
+                        onChange={e => handleEditBillItemChange(idx, 'rate', Number(e.target.value))}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 border-t pt-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">Previous Balance (₹)</label>
+                  <input 
+                    type="number"
+                    className="w-full border p-2 rounded text-sm font-semibold"
+                    value={editBillPrevBalance || ''}
+                    onChange={e => setEditBillPrevBalance(Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">Advance (₹)</label>
+                  <input 
+                    type="number"
+                    className="w-full border p-2 rounded text-sm font-semibold"
+                    value={editBillAdvance || ''}
+                    onChange={e => setEditBillAdvance(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1">Remarks</label>
+                <textarea 
+                  className="w-full border p-2 rounded text-xs"
+                  rows={2}
+                  value={editBillRemarks}
+                  onChange={e => setEditBillRemarks(e.target.value)}
+                  placeholder="Enter remarks..."
+                />
+              </div>
+
+              <div className="bg-slate-100 p-3 rounded-lg border space-y-1.5 text-sm font-semibold">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Subtotal:</span>
+                  <span>₹{formatInr(editBillItems.reduce((sum, item) => sum + item.total, 0))}</span>
+                </div>
+                <div className="flex justify-between text-primary text-base font-bold">
+                  <span>New Grand Total:</span>
+                  <span>
+                    ₹{formatInr(
+                      editBillItems.reduce((sum, item) => sum + item.total, 0) + 
+                      editBillPrevBalance - 
+                      editBillAdvance
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t bg-slate-50 flex gap-3">
+              <button 
+                onClick={() => setEditingBill(null)} 
+                className="flex-1 py-2.5 border rounded-xl font-semibold hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSaveEditedBill} 
+                className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-sm"
+              >
+                Save Updates
               </button>
             </div>
           </div>

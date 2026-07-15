@@ -1,28 +1,28 @@
 -- Siva Durga Traders ERP Seed Data (Consolidated Production v1.0)
 
 -- 1. Seed Materials
-INSERT INTO public.materials (name, category) VALUES
-('Kingfisher Red', 'Bottle Brand'),
-('Kingfisher Green', 'Bottle Brand'),
-('Kingfisher White', 'Bottle Brand'),
-('Budweiser', 'Bottle Brand'),
-('Kajora', 'Bottle Brand'),
-('10000', 'Bottle Brand'),
-('MC Whisky', 'Bottle Brand'),
-('Mansion House', 'Bottle Brand'),
-('Imperial Blue', 'Bottle Brand'),
-('Royal Stag', 'Bottle Brand'),
-('IconiQ', 'Bottle Brand'),
-('Sterling Reserve B7', 'Bottle Brand'),
-('Breezer', 'Bottle Brand'),
-('White Glass', 'Other Material'),
-('Colour Glass', 'Other Material'),
-('Plastic', 'Other Material'),
-('Plastic Cover', 'Other Material'),
-('Water Bottles', 'Other Material'),
-('Iron', 'Other Material'),
-('Books', 'Other Material'),
-('Atta', 'Other Material')
+INSERT INTO public.materials (name, category, default_cost) VALUES
+('Kingfisher Red', 'Bottle Brand', 0.00),
+('Kingfisher Green', 'Bottle Brand', 0.00),
+('Kingfisher White', 'Bottle Brand', 0.00),
+('Budweiser', 'Bottle Brand', 0.00),
+('Kajora', 'Bottle Brand', 0.00),
+('10000', 'Bottle Brand', 0.00),
+('MC Whisky', 'Bottle Brand', 0.00),
+('Mansion House', 'Bottle Brand', 0.00),
+('Imperial Blue', 'Bottle Brand', 0.00),
+('Royal Stag', 'Bottle Brand', 0.00),
+('IconiQ', 'Bottle Brand', 0.00),
+('Sterling Reserve B7', 'Bottle Brand', 0.00),
+('Breezer', 'Bottle Brand', 0.00),
+('White Glass', 'Other Material', 0.00),
+('Colour Glass', 'Other Material', 0.00),
+('Plastic', 'Other Material', 0.00),
+('Plastic Cover', 'Other Material', 0.00),
+('Water Bottles', 'Other Material', 0.00),
+('Iron', 'Other Material', 0.00),
+('Books', 'Other Material', 0.00),
+('Atta', 'Other Material', 0.00)
 ON CONFLICT DO NOTHING;
 
 -- 2. Seed Default Buyers

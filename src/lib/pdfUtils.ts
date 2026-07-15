@@ -28,10 +28,14 @@ export type GroupedSession = {
 }
 
 export type BillBreakdown = {
+  id?: string
   billNumber: number | null
   date: string
-  items: { name: string, quantity: number, rate: number, total: number }[]
+  items: { id?: string, name: string, quantity: number, rate: number, total: number }[]
   grandTotal: number
+  previous_balance?: number
+  advance?: number
+  remarks?: string | null
   session_id?: string
 }
 
@@ -52,6 +56,7 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
     const formattedItems = itemsForBill.map(i => {
       const matName = lang === 'te' && i.materials?.name_te ? i.materials.name_te : ((i.materials as any)?.name || 'Unknown')
       return {
+        id: i.id,
         name: i.item_name || matName,
         quantity: i.quantity,
         rate: i.rate,
@@ -60,10 +65,14 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
     })
     
     return {
+      id: fb.id,
       billNumber: fb.bill_number,
       date: fb.date,
       items: formattedItems,
       grandTotal: fb.grand_total,
+      previous_balance: fb.previous_balance,
+      advance: fb.advance,
+      remarks: fb.remarks,
       session_id: fb.session_id || fb.id
     }
   }) || []
@@ -347,4 +356,261 @@ export const buildCurrentSession = async (session_id: string): Promise<GroupedSe
     bill_ids: data.map(d => d.id)
   }
   return session
+}
+
+export const belongsToPredefinedGroup = (shopName: string): boolean => {
+  const nameLower = shopName.toLowerCase().trim();
+  return nameLower === 'durga bar' || nameLower === 'durga wines' || nameLower === 'vijaya durga wines' ||
+         nameLower === 'suchitra wines' ||
+         nameLower === 'satya krishna bar' || nameLower === 'satya krishna wines' ||
+         nameLower === 'jayaram wines' || nameLower === 'jayaram wines' || nameLower === 'vasu raju wines' || nameLower === 'venkateswara wines';
+}
+
+export const getPredefinedGroupShops = (allShops: Shop[], targetShop: Shop): Shop[] => {
+  const tName = targetShop.name.toLowerCase().trim();
+
+  if (tName === 'durga bar' || tName === 'durga wines' || tName === 'vijaya durga wines') {
+    return allShops.filter(s => {
+      const name = s.name.toLowerCase().trim();
+      return name === 'durga bar' || name === 'durga wines' || name === 'vijaya durga wines';
+    });
+  }
+
+  if (tName === 'suchitra wines') {
+    return allShops.filter(s => {
+      const name = s.name.toLowerCase().trim();
+      const lmark = (s.landmark || '').toLowerCase().trim();
+      return name === 'suchitra wines' && (lmark === 'padmalaya' || lmark === 'town hall' || lmark === 'fire office' || lmark === 'fire station');
+    });
+  }
+
+  if (tName === 'satya krishna bar' || tName === 'satya krishna wines') {
+    return allShops.filter(s => {
+      const name = s.name.toLowerCase().trim();
+      return name === 'satya krishna bar' || name === 'satya krishna wines';
+    });
+  }
+
+  if (tName === 'jayaram wines' || tName === 'vasu raju wines' || tName === 'venkateswara wines') {
+    return allShops.filter(s => {
+      const name = s.name.toLowerCase().trim();
+      return name === 'jayaram wines' || name === 'vasu raju wines' || name === 'venkateswara wines';
+    });
+  }
+
+  return [];
+}
+
+export const generateCombinedGroupPDF = async (
+  shopsInGroup: Shop[], 
+  action: 'download' | 'print' | 'blob', 
+  lang: 'en' | 'te' = 'en',
+  targetShop: Shop
+): Promise<Blob | undefined> => {
+  const toastId = toast.loading("Generating Combined PDF...")
+  try {
+    const shopIds = shopsInGroup.map(s => s.id)
+    const { data: purchases } = await supabase
+      .from('purchases')
+      .select('id, bill_number, date, shop_id, grand_total, session_partial_payment, payment_status')
+      .in('shop_id', shopIds)
+      .eq('payment_status', 'Pending')
+      .order('date', { ascending: true })
+
+    if (!purchases || purchases.length === 0) {
+      toast.dismiss(toastId)
+      toast.error("No pending bills found for this group.")
+      return
+    }
+
+    // Group purchases by shop ID
+    const shopPurchasesMap = new Map<string, typeof purchases>()
+    purchases.forEach(p => {
+      if (!shopPurchasesMap.has(p.shop_id)) {
+        shopPurchasesMap.set(p.shop_id, [])
+      }
+      shopPurchasesMap.get(p.shop_id)!.push(p)
+    })
+
+    const doc = new jsPDF()
+    let y = 10
+
+    // Header
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(22)
+    doc.setTextColor(30, 60, 90)
+    doc.text("SIVA DURGA TRADERS", 105, y + 8, { align: "center" })
+    
+    doc.setFontSize(10)
+    doc.setTextColor(0)
+    const subHeader = lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201]."
+    doc.text(subHeader, 105, y + 13, { align: "center" })
+    
+    doc.line(10, y + 15, 200, y + 15)
+    
+    doc.setFontSize(12)
+    doc.text("G.Ravi Kumar(Chinni)", 12, y + 20)
+    doc.text("Ph.No:9949835054", 140, y + 20)
+    
+    doc.line(10, y + 22, 200, y + 22)
+    
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text(lang === 'te' ? "కంబైన్డ్ పెండింగ్ బిల్లు" : "COMBINED PENDING BILL", 105, y + 28, { align: "center" })
+    doc.setFontSize(10)
+    doc.setFont("helvetica", "normal")
+    doc.text(`${t('date', lang).toUpperCase()}: ${new Date().toISOString().split('T')[0].split('-').reverse().join('-')}`, 140, y + 28)
+
+    y += 32
+
+    let overallTotal = 0
+
+    // Render each shop section
+    shopsInGroup.forEach(shop => {
+      const shopBills = shopPurchasesMap.get(shop.id) || []
+      if (shopBills.length === 0) return
+
+      // Check height for shop section
+      const shopHeaderHeight = 10
+      const tableHeaderHeight = 7
+      const rowHeight = 7
+      const shopFooterHeight = 8
+      const sectionHeight = shopHeaderHeight + tableHeaderHeight + (shopBills.length * rowHeight) + shopFooterHeight + 5
+
+      if (y + sectionHeight > 280) {
+        doc.addPage()
+        y = 10
+      }
+
+      // Draw Shop name & landmark
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(12)
+      doc.setTextColor(30, 60, 90)
+      const shopName = lang === 'te' && shop.name_te ? shop.name_te : shop.name
+      const shopLandmark = lang === 'te' && shop.landmark_te ? shop.landmark_te : (shop.landmark || '')
+      doc.text(`${shopName} ${shopLandmark ? `(${shopLandmark})` : ''}`, 12, y + 5)
+      
+      y += 7
+
+      // Table Header
+      doc.setFillColor(220, 230, 242)
+      doc.rect(10, y, 190, tableHeaderHeight, "F")
+      doc.setFontSize(9)
+      doc.setFont("helvetica", "bold")
+      doc.setTextColor(0)
+      doc.text(lang === 'te' ? "బిల్ నంబర్" : "BILL NUMBER", 15, y + 5)
+      doc.text(lang === 'te' ? "తేదీ" : "DATE", 70, y + 5)
+      doc.text(lang === 'te' ? "బిల్ అమౌంట్" : "BILL AMOUNT", 130, y + 5)
+      doc.text(lang === 'te' ? "పెండింగ్ అమౌంట్" : "PENDING AMOUNT", 185, y + 5, { align: "right" })
+
+      y += tableHeaderHeight
+
+      doc.setFont("helvetica", "normal")
+      let shopSubtotal = 0
+
+      shopBills.forEach(bill => {
+        const pendingAmount = bill.grand_total - (bill.session_partial_payment || 0)
+        shopSubtotal += pendingAmount
+        overallTotal += pendingAmount
+
+        // Draw Row
+        doc.text(`${bill.bill_number}`, 15, y + 5)
+        doc.text(`${bill.date.split('-').reverse().join('-')}`, 70, y + 5)
+        doc.text(`Rs ${formatInr(bill.grand_total)}`, 130, y + 5)
+        doc.text(`Rs ${formatInr(pendingAmount)}`, 185, y + 5, { align: "right" })
+
+        // Draw thin line under row
+        doc.setDrawColor(220)
+        doc.setLineWidth(0.2)
+        doc.line(10, y + rowHeight, 200, y + rowHeight)
+
+        y += rowHeight
+      })
+
+      // Shop Subtotal
+      doc.setFont("helvetica", "bold")
+      doc.text(lang === 'te' ? "సబ్ టోటల్:" : "Subtotal:", 130, y + 5)
+      doc.text(`Rs ${formatInr(shopSubtotal)}`, 185, y + 5, { align: "right" })
+
+      y += shopFooterHeight + 2
+    })
+
+    // Overall Total Summary at the very bottom
+    const summaryHeight = 15
+    if (y + summaryHeight > 280) {
+      doc.addPage()
+      y = 10
+    }
+
+    doc.setDrawColor(30, 60, 90)
+    doc.setLineWidth(0.5)
+    doc.setFillColor(240, 244, 248)
+    doc.rect(10, y, 190, summaryHeight, "FD")
+
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.setTextColor(30, 60, 90)
+    doc.text(lang === 'te' ? "మొత్తం పెండింగ్ అమౌంట్ (OVERALL TOTAL):" : "OVERALL TOTAL PENDING AMOUNT:", 15, y + 10)
+    doc.setTextColor(180, 0, 0)
+    doc.text(`Rs ${formatInr(overallTotal)}`, 185, y + 10, { align: "right" })
+
+    toast.dismiss(toastId)
+    const formattedName = targetShop.name.replace(/\s+/g, '_')
+    if (action === 'download') {
+      doc.save(`CombinedGroupBill_${formattedName}.pdf`)
+    } else if (action === 'print') {
+      doc.autoPrint()
+      window.open(doc.output('bloburl'), '_blank')
+    } else if (action === 'blob') {
+      return doc.output('blob')
+    }
+  } catch (error) {
+    toast.dismiss(toastId)
+    toast.error("Error generating combined document")
+  }
+}
+
+export const shareCombinedGroupWhatsApp = async (
+  shopsInGroup: Shop[], 
+  lang: 'en' | 'te' = 'en',
+  targetShop: Shop
+) => {
+  const toastId = toast.loading("Preparing combined PDF for WhatsApp sharing...")
+  try {
+    const pdfBlob = await generateCombinedGroupPDF(shopsInGroup, 'blob', lang, targetShop)
+    if (!pdfBlob) {
+      toast.dismiss(toastId)
+      toast.error("Failed to generate PDF")
+      return
+    }
+
+    const file = new File(
+      [pdfBlob],
+      `CombinedGroupBill_${targetShop.name.replace(/\s+/g, '_')}.pdf`,
+      { type: "application/pdf" }
+    )
+
+    toast.dismiss(toastId)
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: "Siva Durga Traders Combined Bill",
+          text: `Combined bill for group starting from ${targetShop.name}`,
+          files: [file]
+        })
+      } catch (shareErr: any) {
+        if (shareErr.name !== 'AbortError') {
+          toast.error("Sharing failed. Downloading instead.")
+          await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop)
+        }
+      }
+    } else {
+      await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop)
+      alert("Your browser doesn't support direct PDF sharing.")
+    }
+  } catch (error) {
+    toast.dismiss(toastId)
+    toast.error("Error sharing PDF")
+  }
 }

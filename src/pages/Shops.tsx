@@ -240,12 +240,33 @@ export function Shops() {
                   <td className="px-4 py-3">{shop.mobile || '-'}</td>
                   <td className="px-4 py-3">{lang === 'te' && shop.landmark_te ? shop.landmark_te : (shop.landmark || '-')}</td>
                   <td className="px-4 py-3 text-center">
-                    <input 
-                      type="checkbox" 
-                      className="w-5 h-5 accent-primary" 
-                      checked={shop.marked_for_loading} 
-                      readOnly 
-                    />
+                    <button
+                      onClick={async () => {
+                        try {
+                          const newVal = !shop.marked_for_loading;
+                          const { error } = await supabase
+                            .from('shops')
+                            .update({ marked_for_loading: newVal })
+                            .eq('id', shop.id);
+                          if (error) throw error;
+                          toast.success(newVal ? (lang === 'te' ? "రేపటి లోడింగ్ కోసం చేర్చబడింది!" : "Marked for Tomorrow Loading!") : (lang === 'te' ? "రేపటి లోడింగ్ నుండి తొలగించబడింది!" : "Removed from Tomorrow Loading!"));
+                          fetchShops();
+                        } catch (err: any) {
+                          toast.error(err.message || "Error updating loading status");
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        shop.marked_for_loading 
+                          ? 'bg-green-100 border-green-300 text-green-700 hover:bg-green-200' 
+                          : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {shop.marked_for_loading ? (
+                        <>✓ {lang === 'te' ? "చేర్చబడింది" : "Added"}</>
+                      ) : (
+                        <>🚚 {lang === 'te' ? "రేపటి లోడింగ్" : "Tomorrow Loading"}</>
+                      )}
+                    </button>
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => openHistory(shop)} className="text-gray-600 hover:bg-gray-100 p-2 rounded-md mr-1" title="History">
