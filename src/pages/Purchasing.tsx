@@ -8,7 +8,7 @@ import { Printer, Download, Share2, Save, StoreIcon, CheckCircle2, Search, Mic }
 import { t } from "@/lib/i18n"
 
 const WINE_FIXED_ITEMS = ["Beer", "L.C.'s", "Full's", "Atta", "Plastic", "Nibe Box", "Beer Box"]
-const IRON_FIXED_ITEMS = ["Glass"]
+const IRON_FIXED_ITEMS = ["Glass", "Beer"]
 
 type LineItem = { name: string, quantity: number, rate: number, total: number }
 
@@ -178,7 +178,7 @@ export function Purchasing() {
           material_id: mat?.id || null,
           item_name: item.name,
           quantity: item.quantity,
-          unit: activeTab === 'Iron' ? 'Kg' : 'Nos',
+          unit: item.name === 'Glass' ? 'Kg' : 'Nos',
           rate: item.rate,
           total: item.total
         }

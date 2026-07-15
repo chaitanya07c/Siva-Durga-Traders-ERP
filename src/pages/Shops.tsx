@@ -7,7 +7,7 @@ import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 
 const WINE_FIXED_ITEMS = ["Beer", "L.C.'s", "Full's", "Atta", "Plastic", "Nibe Box", "Beer Box"]
-const IRON_FIXED_ITEMS = ["Glass"]
+const IRON_FIXED_ITEMS = ["Glass", "Beer"]
 
 export function Shops() {
   const { lang } = useOutletContext<{ lang: "en" | "te" }>()
