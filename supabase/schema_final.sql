@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS public.shops (
     address_te TEXT,
     purchase_rate TEXT,
     marked_for_loading BOOLEAN DEFAULT false,
+    marked_for_combined_bill BOOLEAN NOT NULL DEFAULT false,
     shop_rates JSONB NOT NULL DEFAULT '{}'::jsonb,
     status TEXT DEFAULT 'Active',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

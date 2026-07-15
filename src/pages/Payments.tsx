@@ -100,7 +100,84 @@ export function Payments() {
     }
   }
 
-  const handleCompletePaymentInitiate = (session: GroupedSession) => {
+  const isMarkedForCombined = (shopId: string) => {
+    const shop = shops.find(s => s.id === shopId)
+    return shop ? shop.marked_for_combined_bill : false
+  }
+
+  const handleToggleMarkCombinedBill = async (session: GroupedSession) => {
+    try {
+      const shop = shops.find(s => s.id === session.shop_id)
+      if (!shop) return
+      const newVal = !shop.marked_for_combined_bill
+      
+      let groupShops: Shop[] = []
+      if (belongsToPredefinedGroup(shop.name)) {
+        groupShops = getPredefinedGroupShops(shops, shop)
+      } else if (shop.type === 'Akividu Wine') {
+        groupShops = shops.filter(s => s.type === 'Akividu Wine')
+      } else {
+        groupShops = [shop]
+      }
+      
+      const shopIds = groupShops.map(s => s.id)
+      
+      const { error } = await supabase
+        .from('shops')
+        .update({ marked_for_combined_bill: newVal })
+        .in('id', shopIds)
+
+      if (error) throw error
+
+      toast.success(
+        newVal 
+          ? (lang === 'te' ? "కంబైన్డ్ బిల్లుకు జోడించబడింది" : "Marked for Combined Bill successfully!")
+          : (lang === 'te' ? "కంబైన్డ్ బిల్లు నుండి తీసివేయబడింది" : "Removed from Combined Bill successfully!")
+      )
+
+      const { data: shopsData } = await supabase.from('shops').select('*')
+      if (shopsData) setShops(shopsData)
+      loadSessions()
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update status")
+    }
+  }
+
+  const handleCompletePaymentInitiate = async (session: GroupedSession) => {
+    const shop = shops.find(s => s.id === session.shop_id)
+    if (shop && shop.marked_for_combined_bill) {
+      let groupShops: Shop[] = []
+      if (belongsToPredefinedGroup(shop.name)) {
+        groupShops = getPredefinedGroupShops(shops, shop)
+      } else if (shop.type === 'Akividu Wine') {
+        groupShops = shops.filter(s => s.type === 'Akividu Wine')
+      }
+      
+      const shopIds = groupShops.map(s => s.id)
+      const { data: groupPurchases } = await supabase
+        .from('purchases')
+        .select('id, grand_total, session_partial_payment')
+        .in('shop_id', shopIds)
+        .eq('payment_status', 'Pending')
+        
+      if (groupPurchases && groupPurchases.length > 0) {
+        const groupBillIds = groupPurchases.map(p => p.id)
+        const overallTotal = groupPurchases.reduce((sum, p) => sum + p.grand_total, 0)
+        const totalPartialPayment = groupPurchases.reduce((sum, p) => sum + (p.session_partial_payment || 0), 0)
+        
+        setPaymentModal({
+          ...session,
+          shop_name: `${shop.name} (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})`,
+          overallTotal,
+          bill_ids: groupBillIds,
+          isCombinedGroup: true,
+          shopsInGroup: groupShops
+        } as any)
+        setPartialPayment(totalPartialPayment)
+        return
+      }
+    }
+    
     setPaymentModal(session)
     setPartialPayment(session.session_partial_payment || 0)
   }
@@ -109,7 +186,11 @@ export function Payments() {
     if (!paymentModal) return
     try {
       const today = new Date().toISOString().split('T')[0]
-      await supabase.from('purchases').update({ session_partial_payment: partialPayment, payment_date: today }).in('id', paymentModal.bill_ids)
+      await supabase.from('purchases').update({ 
+        session_partial_payment: partialPayment, 
+        payment_date: today 
+      }).in('id', paymentModal.bill_ids)
+      
       toast.success("Partial payment saved successfully!")
       setPaymentModal(null)
       loadSessions()
@@ -127,10 +208,30 @@ export function Payments() {
         session_partial_payment: partialPayment,
         payment_date: today
       }).in('id', paymentModal.bill_ids)
+
+      // Automatically remove Combined Bill flag for all shops in the group
+      const shopIds = (paymentModal as any).shopsInGroup?.map((s: Shop) => s.id) || [paymentModal.shop_id]
+      await supabase.from('shops').update({ marked_for_combined_bill: false }).in('id', shopIds)
+
+      // Reload shops state
+      const { data: shopsData } = await supabase.from('shops').select('*')
+      if (shopsData) setShops(shopsData)
+
       toast.success(t("paymentSaved", lang))
-      const sessionToExport = { ...paymentModal, session_partial_payment: partialPayment, payment_date: today, status: 'Completed' as const }
+      
+      if ((paymentModal as any).isCombinedGroup) {
+        setExportPromptSession(null)
+        setGroupExportPrompt({
+          shopsInGroup: (paymentModal as any).shopsInGroup,
+          targetShop: shops.find(s => s.id === paymentModal.shop_id) || (paymentModal as any).shopsInGroup[0],
+          label: lang === 'te' ? "కంబైన్డ్ బిల్లు" : "Combined Bill"
+        })
+      } else {
+        const sessionToExport = { ...paymentModal, session_partial_payment: partialPayment, payment_date: today, status: 'Completed' as const }
+        setExportPromptSession(sessionToExport)
+      }
+      
       setPaymentModal(null)
-      setExportPromptSession(sessionToExport)
       loadSessions()
     } catch (err: any) {
       toast.error(err.message || "Failed to complete payment")
@@ -139,6 +240,73 @@ export function Payments() {
 
   const handleViewDetails = async (session: GroupedSession) => {
     try {
+      const shop = shops.find(s => s.id === session.shop_id)
+      if (shop && shop.marked_for_combined_bill) {
+        let groupShops: Shop[] = []
+        if (belongsToPredefinedGroup(shop.name)) {
+          groupShops = getPredefinedGroupShops(shops, shop)
+        } else if (shop.type === 'Akividu Wine') {
+          groupShops = shops.filter(s => s.type === 'Akividu Wine')
+        }
+        
+        const shopIds = groupShops.map(s => s.id)
+        const { data: purchases } = await supabase
+          .from('purchases')
+          .select('*, shops(*)')
+          .in('shop_id', shopIds)
+          .eq('payment_status', 'Pending')
+          .order('date', { ascending: true })
+          
+        if (purchases && purchases.length > 0) {
+          const billIds = purchases.map(p => p.id)
+          const overallTotal = purchases.reduce((sum, p) => sum + p.grand_total, 0)
+          
+          const { data: allItems } = await supabase
+            .from('purchase_items')
+            .select('*, materials(name, name_te)')
+            .in('purchase_id', billIds)
+
+          const bills = purchases.map(fb => {
+            const itemsForBill = allItems?.filter(i => i.purchase_id === fb.id) || []
+            const formattedItems = itemsForBill.map(i => {
+              const matName = lang === 'te' && i.materials?.name_te ? i.materials.name_te : ((i.materials as any)?.name || 'Unknown')
+              return {
+                id: i.id,
+                name: i.item_name || matName,
+                quantity: i.quantity,
+                rate: i.rate,
+                total: i.total
+              }
+            })
+            return {
+              id: fb.id,
+              billNumber: fb.bill_number,
+              date: fb.date,
+              items: formattedItems,
+              grandTotal: fb.grand_total,
+              previous_balance: fb.previous_balance || 0,
+              advance: fb.advance || 0,
+              remarks: fb.remarks,
+              session_id: fb.session_id || fb.id,
+              session_partial_payment: fb.session_partial_payment || 0
+            }
+          })
+
+          setDetailsModal({
+            session: {
+              ...session,
+              shop_name: `${shop.name} (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})`,
+              overallTotal,
+              bill_ids: billIds,
+              isCombinedGroup: true,
+              shopsInGroup: groupShops
+            } as any,
+            bills
+          })
+          return
+        }
+      }
+      
       const { bills } = await fetchBillBreakdowns(session, lang)
       setDetailsModal({ session, bills })
     } catch (err: any) {
@@ -146,28 +314,7 @@ export function Payments() {
     }
   }
 
-  const handleCombinedGroupInitiate = async (session: GroupedSession) => {
-    const shop = shops.find(s => s.id === session.shop_id)
-    if (!shop) return
-    const groupShops = getPredefinedGroupShops(shops, shop)
-    if (groupShops.length === 0) return
-    setGroupExportPrompt({
-      shopsInGroup: groupShops,
-      targetShop: shop,
-      label: lang === 'te' ? "కంబైన్డ్ బిల్లు" : "Combined Bill"
-    })
-  }
 
-  const handleCombinedAkividuInitiate = async (session: GroupedSession) => {
-    const shop = shops.find(s => s.id === session.shop_id)
-    if (!shop) return
-    const akividuShops = shops.filter(s => s.type === 'Akividu Wine')
-    setGroupExportPrompt({
-      shopsInGroup: akividuShops,
-      targetShop: shop,
-      label: lang === 'te' ? "ఆకివీడు కంబైన్డ్ బిల్లు" : "Combined Akividu Bill"
-    })
-  }
 
   // Edit Bill states and handlers
   const [editingBill, setEditingBill] = useState<BillBreakdown | null>(null)
@@ -373,21 +520,18 @@ export function Payments() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        {session.status === 'Pending' && belongsToPredefinedGroup(session.shop_name) && (
+                        {session.status === 'Pending' && (belongsToPredefinedGroup(session.shop_name) || session.shop_type === 'Akividu Wine') && (
                           <button 
-                            onClick={() => handleCombinedGroupInitiate(session)} 
-                            className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-3 py-1.5 rounded flex items-center text-xs font-semibold shadow-sm"
+                            onClick={() => handleToggleMarkCombinedBill(session)} 
+                            className={`px-3 py-1.5 rounded flex items-center text-xs font-semibold shadow-sm transition-colors ${
+                              isMarkedForCombined(session.shop_id) 
+                                ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+                                : 'bg-purple-100 hover:bg-purple-200 text-purple-700'
+                            }`}
                           >
-                            Combined Bill
-                          </button>
-                        )}
-
-                        {session.status === 'Pending' && session.shop_type === 'Akividu Wine' && (
-                          <button 
-                            onClick={() => handleCombinedAkividuInitiate(session)} 
-                            className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded flex items-center text-xs font-semibold shadow-sm"
-                          >
-                            Combined Akividu Bill
+                            {isMarkedForCombined(session.shop_id) 
+                              ? (lang === 'te' ? "✓ కంబైన్డ్ బిల్లు ఎంపికైంది" : "✓ Combined Bill Selected")
+                              : (lang === 'te' ? "కంబైన్డ్ బిల్లు గుర్తింపు" : "Mark for Combined Bill")}
                           </button>
                         )}
 

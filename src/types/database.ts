@@ -14,6 +14,7 @@ export type Shop = {
   purchase_rate: string | null
   status: string
   marked_for_loading: boolean
+  marked_for_combined_bill: boolean
   shop_rates: Record<string, number>
   created_at: string
 }
