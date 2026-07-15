@@ -105,6 +105,29 @@ export function Payments() {
     return shop ? shop.marked_for_combined_bill : false
   }
 
+  const shouldShowCombinedToggle = (session: GroupedSession) => {
+    if (session.status !== 'Pending') return false
+    
+    const shop = shops.find(s => s.id === session.shop_id)
+    if (!shop) return false
+    
+    if (!belongsToPredefinedGroup(shop.name) && shop.type !== 'Akividu Wine') {
+      return false
+    }
+    
+    let groupShops: Shop[] = []
+    if (belongsToPredefinedGroup(shop.name)) {
+      groupShops = getPredefinedGroupShops(shops, shop)
+    } else if (shop.type === 'Akividu Wine') {
+      groupShops = shops.filter(s => s.type === 'Akividu Wine')
+    }
+    
+    const groupShopIds = new Set(groupShops.map(s => s.id))
+    const pendingGroupShopsCount = groupedSessions.filter(s => groupShopIds.has(s.shop_id) && s.status === 'Pending').length
+    
+    return pendingGroupShopsCount >= 2
+  }
+
   const handleToggleMarkCombinedBill = async (session: GroupedSession) => {
     try {
       const shop = shops.find(s => s.id === session.shop_id)
@@ -145,7 +168,7 @@ export function Payments() {
 
   const handleCompletePaymentInitiate = async (session: GroupedSession) => {
     const shop = shops.find(s => s.id === session.shop_id)
-    if (shop && shop.marked_for_combined_bill) {
+    if (shop && shop.marked_for_combined_bill && shouldShowCombinedToggle(session)) {
       let groupShops: Shop[] = []
       if (belongsToPredefinedGroup(shop.name)) {
         groupShops = getPredefinedGroupShops(shops, shop)
@@ -241,7 +264,7 @@ export function Payments() {
   const handleViewDetails = async (session: GroupedSession) => {
     try {
       const shop = shops.find(s => s.id === session.shop_id)
-      if (shop && shop.marked_for_combined_bill) {
+      if (shop && shop.marked_for_combined_bill && shouldShowCombinedToggle(session)) {
         let groupShops: Shop[] = []
         if (belongsToPredefinedGroup(shop.name)) {
           groupShops = getPredefinedGroupShops(shops, shop)
@@ -520,7 +543,7 @@ export function Payments() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        {session.status === 'Pending' && (belongsToPredefinedGroup(session.shop_name) || session.shop_type === 'Akividu Wine') && (
+                        {shouldShowCombinedToggle(session) && (
                           <button 
                             onClick={() => handleToggleMarkCombinedBill(session)} 
                             className={`px-3 py-1.5 rounded flex items-center text-xs font-semibold shadow-sm transition-colors ${
