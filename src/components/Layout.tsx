@@ -1,0 +1,131 @@
+import { Outlet, Link, useLocation } from "react-router-dom"
+import { useState, useEffect } from "react"
+import { LayoutDashboard, Store, ShoppingCart, Banknote, Users, FileText, Settings as SettingsIcon, Truck, Search, Mic, CreditCard } from "lucide-react"
+import { cn } from "@/lib/utils"
+
+const navItems = [
+  { name: "Dashboard", te: "డ్యాష్‌బోర్డ్", path: "/", icon: LayoutDashboard },
+  { name: "Shop Details", te: "దుకాణం వివరాలు", path: "/shops", icon: Store },
+  { name: "Purchasing", te: "కొనుగోళ్లు", path: "/purchasing", icon: ShoppingCart },
+  { name: "Payments", te: "చెల్లింపులు", path: "/payments", icon: CreditCard },
+  { name: "Loading", te: "లోడింగ్", path: "/loading", icon: Truck },
+  { name: "Sales", te: "అమ్మకాలు", path: "/sales", icon: Banknote },
+  { name: "Sales Payments", te: "అమ్మకాల చెల్లింపులు", path: "/sales-payments", icon: CreditCard },
+  { name: "Workers", te: "పనివారు", path: "/workers", icon: Users },
+  { name: "Reports", te: "నివేదికలు", path: "/reports", icon: FileText },
+  { name: "Settings", te: "సెట్టింగులు", path: "/settings", icon: SettingsIcon },
+]
+
+export function Layout() {
+  const location = useLocation()
+  const [lang, setLang] = useState<"en" | "te">(
+    () => (localStorage.getItem("app_lang") as "en" | "te") || "en"
+  )
+  const [searchQuery, setSearchQuery] = useState("")
+  const [isListening, setIsListening] = useState(false)
+
+  // Persist language
+  useEffect(() => {
+    localStorage.setItem("app_lang", lang)
+  }, [lang])
+
+  const handleVoiceSearch = () => {
+    // @ts-ignore
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) return alert("Voice search is not supported in your browser.")
+    
+    const recognition = new SpeechRecognition()
+    recognition.lang = lang === "te" ? "te-IN" : "en-IN"
+    recognition.interimResults = false
+    
+    recognition.onstart = () => setIsListening(true)
+    recognition.onend = () => setIsListening(false)
+    
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript
+      setSearchQuery(transcript)
+      // Here you would trigger actual search logic globally
+    }
+    
+    recognition.start()
+  }
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      {/* Sidebar */}
+      <div className="w-64 flex-shrink-0 border-r bg-card hidden md:flex flex-col">
+        <div className="h-16 flex items-center px-6 border-b">
+          <h1 className="text-xl font-bold text-primary">Siva Durga Traders</h1>
+        </div>
+        
+        {/* Welcome Section */}
+        <div className="px-6 py-4 border-b bg-muted/10">
+          <div className="text-sm text-muted-foreground">👋 Welcome,</div>
+          <div className="text-sm font-semibold text-foreground mt-1">Gubbala</div>
+          <div className="text-sm font-semibold text-foreground pl-3">Ravi Kumar</div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto py-4">
+          <nav className="px-3 space-y-1">
+            {navItems.map((item) => {
+              const isActive = location.pathname === item.path
+              return (
+                <Link
+                  key={item.name}
+                  to={item.path}
+                  className={cn(
+                    "group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                    isActive 
+                      ? "bg-primary text-primary-foreground" 
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <item.icon
+                    className={cn(
+                      "mr-3 flex-shrink-0 h-5 w-5",
+                      isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"
+                    )}
+                    aria-hidden="true"
+                  />
+                  {lang === "te" ? item.te : item.name}
+                </Link>
+              )
+            })}
+          </nav>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Global Header */}
+        <header className="h-16 border-b bg-card flex items-center justify-between px-6 shrink-0 gap-4">
+          <div className="flex-1 max-w-2xl relative flex items-center">
+            <Search className="w-5 h-5 absolute left-3 text-muted-foreground" />
+            <input 
+              type="text" 
+              placeholder={lang === "te" ? "వెతకండి..." : "Search shops, bills, workers..."} 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-12 py-2 bg-muted/50 border rounded-full focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
+            />
+            <button 
+              onClick={handleVoiceSearch}
+              className={`absolute right-3 p-1.5 rounded-full ${isListening ? 'bg-red-100 text-red-600 animate-pulse' : 'text-muted-foreground hover:bg-muted'}`}
+            >
+              <Mic className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex flex-col items-start text-xs shrink-0 md:hidden">
+            <span className="text-muted-foreground">👋 Welcome,</span>
+            <span className="font-semibold text-foreground">Gubbala</span>
+            <span className="font-semibold text-foreground pl-3">Ravi Kumar</span>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-auto p-6 bg-muted/20">
+          <Outlet context={{ lang, setLang }} />
+        </main>
+      </div>
+    </div>
+  )
+}
