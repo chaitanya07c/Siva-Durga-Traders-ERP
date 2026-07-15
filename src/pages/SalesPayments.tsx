@@ -314,26 +314,28 @@ export function SalesPayments() {
                       <span>₹{formatInr(bill.grandTotal)}</span>
                     </div>
                     <div className="p-4">
-                      <table className="w-full text-sm">
-                        <thead className="text-muted-foreground border-b text-left">
-                          <tr>
-                            <th className="pb-2">Item</th>
-                            <th className="pb-2 text-center">Qty</th>
-                            <th className="pb-2 text-right">Rate</th>
-                            <th className="pb-2 text-right">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {bill.items.filter(i => i.quantity > 0).map((item, i) => (
-                            <tr key={i}>
-                              <td className="py-2">{item.name}</td>
-                              <td className="py-2 text-center">{formatQuantity(item.name, item.quantity)}</td>
-                              <td className="py-2 text-right">₹{item.rate}</td>
-                              <td className="py-2 text-right font-medium">₹{formatInr(item.total)}</td>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="text-muted-foreground border-b text-left">
+                            <tr>
+                              <th className="pb-2">Item</th>
+                              <th className="pb-2 text-center">Qty</th>
+                              <th className="pb-2 text-right">Rate</th>
+                              <th className="pb-2 text-right">Total</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {bill.items.filter(i => i.quantity > 0).map((item, i) => (
+                              <tr key={i}>
+                                <td className="py-2">{item.name}</td>
+                                <td className="py-2 text-center">{formatQuantity(item.name, item.quantity)}</td>
+                                <td className="py-2 text-right">₹{item.rate}</td>
+                                <td className="py-2 text-right font-medium">₹{formatInr(item.total)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 ))}

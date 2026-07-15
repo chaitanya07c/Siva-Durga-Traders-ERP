@@ -270,7 +270,7 @@ export function Shops() {
           <div className="bg-background w-full max-w-2xl rounded-lg shadow-lg p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">{editingShop ? t("editShop", lang) : t("addShop", lang)}</h2>
             <form onSubmit={handleSave} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">{t("name", lang)} *</label>
                   <input required type="text" className="w-full border p-2 rounded" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
@@ -312,15 +312,15 @@ export function Shops() {
                   <label className="block text-sm font-medium mb-1">{t("whatsapp", lang)}</label>
                   <input type="text" className="w-full border p-2 rounded" value={formData.whatsapp || ""} onChange={e => setFormData({...formData, whatsapp: e.target.value})} />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-1 sm:col-span-2">
                   <label className="block text-sm font-medium mb-1">{t("address", lang)}</label>
                   <textarea className="w-full border p-2 rounded" rows={2} value={formData.address || ""} onChange={e => setFormData({...formData, address: e.target.value})} />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-1 sm:col-span-2">
                   <label className="block text-sm font-medium mb-1">{t("addressTe", lang)}</label>
                   <textarea className="w-full border p-2 rounded" rows={2} value={formData.address_te || ""} onChange={e => setFormData({...formData, address_te: e.target.value})} />
                 </div>
-                <div className="col-span-2 flex items-center gap-2 mt-2 border-b pb-4">
+                <div className="col-span-1 sm:col-span-2 flex items-center gap-2 mt-2 border-b pb-4">
                   <input 
                     type="checkbox" 
                     id="loadingCheck"
@@ -371,8 +371,9 @@ export function Shops() {
             {shopHistory.length === 0 ? (
               <p className="text-muted-foreground text-sm">No purchases recorded for this shop.</p>
             ) : (
-              <table className="w-full text-sm text-left border">
-                <thead className="bg-muted">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left border">
+                  <thead className="bg-muted">
                   <tr>
                     <th className="px-4 py-2">Bill No</th>
                     <th className="px-4 py-2">Date</th>
@@ -389,6 +390,7 @@ export function Shops() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
             <div className="flex justify-end mt-6">
               <button onClick={() => setIsHistoryOpen(false)} className="px-4 py-2 border rounded hover:bg-muted">Close</button>

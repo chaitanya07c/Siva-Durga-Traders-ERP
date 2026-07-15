@@ -213,7 +213,7 @@ export function Settings() {
                 onChange={e => setSearch(e.target.value)}
               />
 
-              <div className="border rounded-lg overflow-hidden">
+              <div className="border rounded-lg overflow-x-auto">
                 <table className="w-full text-sm text-left">
               <thead className="bg-muted">
                     <tr>

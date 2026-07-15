@@ -317,7 +317,7 @@ export function Workers() {
                 <label className="block text-sm font-medium mb-1">{t("mobile", lang)}</label>
                 <input type="text" className="w-full border p-2 rounded" value={formData.mobile || ""} onChange={e => setFormData({...formData, mobile: e.target.value})} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">{t("role", lang)}</label>
                   <input type="text" className="w-full border p-2 rounded" value={formData.role || ""} onChange={e => setFormData({...formData, role: e.target.value})} />
