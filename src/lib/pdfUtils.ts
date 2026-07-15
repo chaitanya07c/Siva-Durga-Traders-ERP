@@ -74,7 +74,7 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
   }
 }
 
-export const generateCombinedPDF = async (session: GroupedSession, action: 'download' | 'print', lang: 'en' | 'te' = 'en') => {
+export const generateCombinedPDF = async (session: GroupedSession, action: 'download' | 'print' | 'blob', lang: 'en' | 'te' = 'en'): Promise<Blob | undefined> => {
   const toastId = toast.loading("Generating PDF...")
   try {
     const { shop, bills } = await fetchBillBreakdowns(session, lang)
@@ -268,9 +268,11 @@ export const generateCombinedPDF = async (session: GroupedSession, action: 'down
     toast.dismiss(toastId)
     if (action === 'download') {
       doc.save(`CombinedBill_${shop.name}_${session.date}.pdf`)
-    } else {
+    } else if (action === 'print') {
       doc.autoPrint()
       window.open(doc.output('bloburl'), '_blank')
+    } else if (action === 'blob') {
+      return doc.output('blob')
     }
   } catch (error) {
     toast.dismiss(toastId)
@@ -279,60 +281,45 @@ export const generateCombinedPDF = async (session: GroupedSession, action: 'down
 }
 
 export const shareWhatsApp = async (session: GroupedSession, lang: 'en' | 'te' = 'en') => {
-  const toastId = toast.loading("Preparing WhatsApp share...")
+  const toastId = toast.loading("Preparing PDF for sharing...")
   try {
-    const { shop, bills } = await fetchBillBreakdowns(session, lang)
+    const { shop } = await fetchBillBreakdowns(session, lang)
+    const pdfBlob = await generateCombinedPDF(session, 'blob', lang)
+    
+    if (!pdfBlob) {
+      toast.dismiss(toastId)
+      toast.error("Failed to generate PDF")
+      return
+    }
+
+    const file = new File(
+      [pdfBlob],
+      `CombinedBill_${shop.name}_${session.date}.pdf`,
+      { type: "application/pdf" }
+    )
+
     toast.dismiss(toastId)
 
-    if (!shop?.whatsapp && !shop?.mobile) {
-      return toast.error("No mobile or WhatsApp number saved for this shop")
-    }
-    
-    const number = shop.whatsapp || shop.mobile
-    let text = `SIVA DURGA TRADERS\nDate: ${session.date}\n\n`
-    
-    bills.forEach((b, i) => {
-      text += `Bill ${i + 1} (${b.billNumber}): Rs ${formatInr(b.grandTotal)}\n`
-    })
-    if (bills.length > 1) {
-      text += `\nOVERALL TOTAL: Rs ${formatInr(session.overallTotal)}\n`
-    } else {
-      text += `\n`
-    }
-
-    const partialPayment = session.session_partial_payment || 0
-    const paymentDate = session.payment_date 
-      ? session.payment_date.split('-').reverse().join('-') 
-      : new Date().toISOString().split('T')[0].split('-').reverse().join('-')
-      
-    let paymentStatus = t('pending', lang)
-    if (session.status === 'Completed') {
-      paymentStatus = t('completed', lang)
-    } else if (partialPayment > 0) {
-      paymentStatus = t('partialPaid', lang)
-    }
-
-    text += `\n${t('paymentInfo', lang).toUpperCase()}\n`
-    text += `${t('date', lang)}: ${paymentDate}\n`
-    text += `${t('status', lang)}: ${paymentStatus}\n\n`
-
-    if (partialPayment > 0 || session.overallTotal - partialPayment > 0) {
-      text += `${t('paymentSummary', lang).toUpperCase()}\n`
-      text += `${t('overallAmount', lang)}: Rs ${formatInr(session.overallTotal)}\n`
-      if (partialPayment > 0 && session.overallTotal - partialPayment > 0) {
-        text += `${t('partialPaid', lang)}: Rs ${formatInr(partialPayment)}\n`
-        text += `${t('balanceAmount', lang)}: Rs ${formatInr(session.overallTotal - partialPayment)}\n`
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: "Siva Durga Traders Bill",
+          text: `Bill for ${shop.name} - Date: ${session.date}`,
+          files: [file]
+        })
+      } catch (shareErr: any) {
+        if (shareErr.name !== 'AbortError') {
+          toast.error("Sharing failed. Downloading instead.")
+          await generateCombinedPDF(session, 'download', lang)
+        }
       }
-      text += `\n`
+    } else {
+      await generateCombinedPDF(session, 'download', lang)
+      alert("Your browser doesn't support direct PDF sharing.")
     }
-
-    text += `Thank you!`
-
-    const url = `https://wa.me/91${number}?text=${encodeURIComponent(text)}`
-    window.open(url, '_blank')
   } catch (error) {
     toast.dismiss(toastId)
-    toast.error("Error preparing WhatsApp message")
+    toast.error("Error sharing PDF")
   }
 }
 
