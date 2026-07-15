@@ -73,6 +73,7 @@ export function Purchasing() {
   const [previousBalance, setPreviousBalance] = useState(0)
   const [advance, setAdvance] = useState(0)
   const [remarks, setRemarks] = useState("")
+  const [showBeerRow, setShowBeerRow] = useState(false)
 
   const [savedBillId, setSavedBillId] = useState<string | null>(null)
   const [currentSessionId, setCurrentSessionId] = useState<string>(crypto.randomUUID())
@@ -92,6 +93,7 @@ export function Purchasing() {
     setSelectedShopId("")
     setSavedBillId(null)
     setCurrentSessionId(crypto.randomUUID())
+    setShowBeerRow(false)
   }, [activeTab])
 
   useEffect(() => {
@@ -143,12 +145,25 @@ export function Purchasing() {
     })
   }
 
-  const subTotal = items.reduce((sum, item) => sum + item.total, 0)
+  const subTotal = items.reduce((sum, item) => {
+    if (activeTab === 'Iron' && item.name === 'Beer' && !showBeerRow) {
+      return sum
+    }
+    return sum + item.total
+  }, 0)
   const grandTotal = subTotal + previousBalance - advance
 
   const handleSaveBill = async () => {
     if (!selectedShopId) return toast.error("Please select a shop")
-    if (!items.some(i => i.quantity > 0)) return toast.error("Please enter quantity for at least one item")
+    
+    const validItems = items.filter(i => {
+      if (activeTab === 'Iron' && i.name === 'Beer' && !showBeerRow) {
+        return false
+      }
+      return i.quantity > 0
+    })
+
+    if (validItems.length === 0) return toast.error("Please enter quantity for at least one item")
 
     try {
       const { data: purchaseData, error: purchaseError } = await supabase
@@ -171,7 +186,7 @@ export function Purchasing() {
 
       const { data: mats } = await supabase.from('materials').select('id, name, name_te')
       
-      const purchaseItems = items.filter(i => i.quantity > 0).map(item => {
+      const purchaseItems = validItems.map(item => {
         const mat = mats?.find(m => m.name.toLowerCase() === item.name.toLowerCase())
         return {
           purchase_id: purchaseData.id,
@@ -199,6 +214,7 @@ export function Purchasing() {
     setAdvance(0)
     setRemarks("")
     setSavedBillId(null)
+    setShowBeerRow(false)
     
     // Reset quantities to 0, keep edited rates
     setItems(prevItems => prevItems.map(item => ({
@@ -231,6 +247,7 @@ export function Purchasing() {
     setRemarks("")
     setSavedBillId(null)
     setCurrentSessionId(crypto.randomUUID())
+    setShowBeerRow(false)
     const defaultItems = (activeTab === "Iron" ? IRON_FIXED_ITEMS : WINE_FIXED_ITEMS).map(name => ({
       name, quantity: 0, rate: 0, total: 0
     }))
@@ -335,28 +352,86 @@ export function Purchasing() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {items.map((item, index) => (
-                    <tr key={item.name} className="hover:bg-muted/30">
-                      <td className="px-4 py-3.5 font-bold text-slate-800">{getItemName(item.name, lang)}</td>
-                    <td className="px-3 py-2">
-                      <input type="number" className="w-full border p-2 rounded text-sm" value={item.quantity || ""} onChange={e => updateItem(index, 'quantity', Number(e.target.value))} disabled={!!savedBillId} placeholder="0" />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input 
-                        type="number" 
-                        className="w-full border p-2 rounded text-sm bg-muted/50 cursor-not-allowed text-muted-foreground" 
-                        value={item.rate !== undefined && item.rate !== null ? item.rate : ""} 
-                        readOnly 
-                        disabled 
-                        placeholder="0.00" 
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-right font-medium">₹{formatInr(item.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                  {items
+                    .filter(item => {
+                      if (activeTab === 'Iron' && item.name === 'Beer' && !showBeerRow) {
+                        return false
+                      }
+                      return true
+                    })
+                    .map((item) => {
+                      const originalIndex = items.findIndex(i => i.name === item.name)
+                      return (
+                        <tr key={item.name} className="hover:bg-muted/30">
+                          <td className="px-4 py-3.5 font-bold text-slate-800">
+                            <div className="flex items-center gap-2">
+                              <span>{getItemName(item.name, lang)}</span>
+                              {activeTab === 'Iron' && item.name === 'Beer' && !savedBillId && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowBeerRow(false)
+                                    updateItem(originalIndex, 'quantity', 0)
+                                    updateItem(originalIndex, 'rate', 0)
+                                  }}
+                                  className="text-red-500 hover:text-red-700 font-bold ml-2 text-sm bg-red-50 hover:bg-red-100 rounded-full w-5 h-5 flex items-center justify-center border border-red-200 transition-colors"
+                                  title="Remove"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <input 
+                              type="number" 
+                              className="w-full border p-2 rounded text-sm bg-background font-medium focus:outline-none focus:ring-2 focus:ring-primary/50" 
+                              value={item.quantity || ""} 
+                              onChange={e => updateItem(originalIndex, 'quantity', Number(e.target.value))} 
+                              disabled={!!savedBillId} 
+                              placeholder="0" 
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            {activeTab === 'Iron' && item.name === 'Beer' ? (
+                              <input 
+                                type="number" 
+                                className="w-full border p-2 rounded text-sm bg-background font-medium focus:outline-none focus:ring-2 focus:ring-primary/50" 
+                                value={item.rate !== undefined && item.rate !== null ? item.rate : ""} 
+                                onChange={e => updateItem(originalIndex, 'rate', Number(e.target.value))}
+                                disabled={!!savedBillId}
+                                placeholder="0.00" 
+                              />
+                            ) : (
+                              <input 
+                                type="number" 
+                                className="w-full border p-2 rounded text-sm bg-muted/50 cursor-not-allowed text-muted-foreground" 
+                                value={item.rate !== undefined && item.rate !== null ? item.rate : ""} 
+                                readOnly 
+                                disabled 
+                                placeholder="0.00" 
+                              />
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium">₹{formatInr(item.total)}</td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+
+            {activeTab === 'Iron' && !showBeerRow && !savedBillId && (
+              <div className="mt-4 flex justify-start">
+                <button
+                  type="button"
+                  onClick={() => setShowBeerRow(true)}
+                  className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center shadow-sm"
+                >
+                  + Add Beer
+                </button>
+              </div>
+            )}
 
           <div className="grid grid-cols-2 gap-4 mt-6 pt-4 border-t">
           </div>
