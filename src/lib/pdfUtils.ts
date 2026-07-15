@@ -405,17 +405,31 @@ export const generateCombinedGroupPDF = async (
   shopsInGroup: Shop[], 
   action: 'download' | 'print' | 'blob', 
   lang: 'en' | 'te' = 'en',
-  targetShop: Shop
+  targetShop: Shop,
+  billIds?: string[]
 ): Promise<Blob | undefined> => {
   const toastId = toast.loading("Generating Combined PDF...")
   try {
     const shopIds = shopsInGroup.map(s => s.id)
-    const { data: fullBills } = await supabase
+    
+    let query = supabase
       .from('purchases')
       .select('*, shops(*)')
-      .in('shop_id', shopIds)
-      .eq('payment_status', 'Pending')
-      .order('date', { ascending: true })
+
+    if (billIds && billIds.length > 0) {
+      query = query.in('id', billIds)
+    } else {
+      query = query.in('shop_id', shopIds).eq('payment_status', 'Pending')
+    }
+
+    const { data: fullBills, error: fetchError } = await query.order('date', { ascending: true })
+
+    if (fetchError) {
+      console.error("Failed to query group purchases:", fetchError)
+      toast.dismiss(toastId)
+      toast.error("Database error while generating PDF.")
+      return
+    }
 
     if (!fullBills || fullBills.length === 0) {
       toast.dismiss(toastId)
@@ -423,11 +437,22 @@ export const generateCombinedGroupPDF = async (
       return
     }
 
-    const billIds = fullBills.map(b => b.id)
-    const { data: allItems } = await supabase
+    const activeShopIds = new Set(fullBills.map(b => b.shop_id))
+    const filteredShopsInGroup = shopsInGroup.filter(s => activeShopIds.has(s.id))
+    console.log("Generating Combined PDF for shops in group:", filteredShopsInGroup.map(s => s.name))
+
+    const activeBillIds = fullBills.map(b => b.id)
+    const { data: allItems, error: itemsError } = await supabase
       .from('purchase_items')
       .select('*, materials(name, name_te)')
-      .in('purchase_id', billIds)
+      .in('purchase_id', activeBillIds)
+
+    if (itemsError) {
+      console.error("Failed to query purchase items for group:", itemsError)
+      toast.dismiss(toastId)
+      toast.error("Database error loading items breakdown.")
+      return
+    }
 
     const reconstructedBills = fullBills.map(fb => {
       const itemsForBill = allItems?.filter(i => i.purchase_id === fb.id) || []
@@ -659,6 +684,7 @@ export const generateCombinedGroupPDF = async (
       return doc.output('blob')
     }
   } catch (error) {
+    console.error("Failed to generate Combined PDF:", error)
     toast.dismiss(toastId)
     toast.error("Error generating combined document")
   }
@@ -667,11 +693,12 @@ export const generateCombinedGroupPDF = async (
 export const shareCombinedGroupWhatsApp = async (
   shopsInGroup: Shop[], 
   lang: 'en' | 'te' = 'en',
-  targetShop: Shop
+  targetShop: Shop,
+  billIds?: string[]
 ) => {
   const toastId = toast.loading("Preparing combined PDF for WhatsApp sharing...")
   try {
-    const pdfBlob = await generateCombinedGroupPDF(shopsInGroup, 'blob', lang, targetShop)
+    const pdfBlob = await generateCombinedGroupPDF(shopsInGroup, 'blob', lang, targetShop, billIds)
     if (!pdfBlob) {
       toast.dismiss(toastId)
       toast.error("Failed to generate PDF")
@@ -695,15 +722,17 @@ export const shareCombinedGroupWhatsApp = async (
         })
       } catch (shareErr: any) {
         if (shareErr.name !== 'AbortError') {
+          console.error("WhatsApp share failed:", shareErr)
           toast.error("Sharing failed. Downloading instead.")
-          await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop)
+          await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds)
         }
       }
     } else {
-      await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop)
+      await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds)
       alert("Your browser doesn't support direct PDF sharing.")
     }
   } catch (error) {
+    console.error("Error sharing Combined PDF:", error)
     toast.dismiss(toastId)
     toast.error("Error sharing PDF")
   }

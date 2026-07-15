@@ -33,7 +33,12 @@ export function Payments() {
   const [paymentModal, setPaymentModal] = useState<GroupedSession | null>(null)
   const [partialPayment, setPartialPayment] = useState<number>(0)
   const [exportPromptSession, setExportPromptSession] = useState<GroupedSession | null>(null)
-  const [groupExportPrompt, setGroupExportPrompt] = useState<{ shopsInGroup: Shop[], targetShop: Shop, label: string } | null>(null)
+  const [groupExportPrompt, setGroupExportPrompt] = useState<{ 
+    shopsInGroup: Shop[], 
+    targetShop: Shop, 
+    label: string,
+    billIds?: string[]
+  } | null>(null)
 
   useEffect(() => {
     loadSessions()
@@ -247,7 +252,8 @@ export function Payments() {
         setGroupExportPrompt({
           shopsInGroup: (paymentModal as any).shopsInGroup,
           targetShop: shops.find(s => s.id === paymentModal.shop_id) || (paymentModal as any).shopsInGroup[0],
-          label: lang === 'te' ? "కంబైన్డ్ బిల్లు" : "Combined Bill"
+          label: lang === 'te' ? "కంబైన్డ్ బిల్లు" : "Combined Bill",
+          billIds: paymentModal.bill_ids
         })
       } else {
         const sessionToExport = { ...paymentModal, session_partial_payment: partialPayment, payment_date: today, status: 'Completed' as const }
@@ -819,19 +825,19 @@ export function Payments() {
             
             <div className="w-full flex flex-col gap-3">
               <button 
-                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'download', lang, groupExportPrompt.targetShop)} 
+                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'download', lang, groupExportPrompt.targetShop, groupExportPrompt.billIds)} 
                 className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors"
               >
                 <Download className="w-5 h-5 mr-2" /> {lang === 'te' ? "డౌన్‌లోడ్ PDF" : "Download PDF"}
               </button>
               <button 
-                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'print', lang, groupExportPrompt.targetShop)} 
+                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'print', lang, groupExportPrompt.targetShop, groupExportPrompt.billIds)} 
                 className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors"
               >
                 <Printer className="w-5 h-5 mr-2" /> {lang === 'te' ? "ప్రింట్ బిల్" : "Print Bill"}
               </button>
               <button 
-                onClick={() => shareCombinedGroupWhatsApp(groupExportPrompt.shopsInGroup, lang, groupExportPrompt.targetShop)} 
+                onClick={() => shareCombinedGroupWhatsApp(groupExportPrompt.shopsInGroup, lang, groupExportPrompt.targetShop, groupExportPrompt.billIds)} 
                 className="w-full flex items-center justify-center py-3 bg-green-50 text-green-700 hover:bg-green-100 rounded-xl font-medium transition-colors"
               >
                 <Share2 className="w-5 h-5 mr-2" /> {lang === 'te' ? "వాట్సాప్ ద్వారా షేర్ చేయండి" : "Share via WhatsApp"}
