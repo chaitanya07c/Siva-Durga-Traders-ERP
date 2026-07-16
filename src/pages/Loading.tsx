@@ -7,6 +7,7 @@ import { useNavigate, useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import jsPDF from "jspdf"
 import "jspdf-autotable"
+import { formatDate } from "@/lib/utils"
 
 export function Loading() {
   const { lang } = useOutletContext<{ lang: "en" | "te" }>()
@@ -126,9 +127,10 @@ export function Loading() {
     const doc = new jsPDF()
     doc.text("Completed Loading Report", 14, 15)
     
-    const head = [['Date', 'Shop Name', 'Type', 'Bill No', 'Amount', 'Status']]
-    const body = filteredLoadings.map(l => [
-      l.loading_date,
+    const head = [['S.No.', 'Date', 'Shop Name', 'Type', 'Bill No', 'Amount', 'Status']]
+    const body = filteredLoadings.map((l, index) => [
+      index + 1,
+      formatDate(l.loading_date),
       l.shop_name,
       l.shop_type,
       l.purchase_bill_number || '-',
@@ -289,6 +291,7 @@ export function Loading() {
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted text-muted-foreground">
                   <tr>
+                    <th className="px-4 py-3 w-16">S.No.</th>
                     <th className="px-4 py-3">{lang === 'te' ? "పూర్తయిన సమయం" : "Completed On"}</th>
                     <th className="px-4 py-3">{t("loadingDate", lang)}</th>
                     <th className="px-4 py-3">{t("name", lang)}</th>
@@ -301,13 +304,14 @@ export function Loading() {
                 </thead>
                 <tbody>
                   {completedLoading ? (
-                    <tr><td colSpan={8} className="text-center py-8">{t("loading", lang)}...</td></tr>
+                    <tr><td colSpan={9} className="text-center py-8">{t("loading", lang)}...</td></tr>
                   ) : filteredLoadings.length === 0 ? (
-                    <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">No completed loadings found matching filters.</td></tr>
-                  ) : filteredLoadings.map(row => (
+                    <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">No completed loadings found matching filters.</td></tr>
+                  ) : filteredLoadings.map((row, index) => (
                     <tr key={row.id} className="border-b last:border-0 hover:bg-muted/50">
+                      <td className="px-4 py-3 text-muted-foreground">{index + 1}</td>
                       <td className="px-4 py-3">{new Date(row.completed_at).toLocaleString('en-IN')}</td>
-                      <td className="px-4 py-3">{row.loading_date}</td>
+                      <td className="px-4 py-3">{formatDate(row.loading_date)}</td>
                       <td className="px-4 py-3 font-medium">{lang === 'te' && (row as any).shops?.name_te ? (row as any).shops.name_te : row.shop_name}</td>
                       <td className="px-4 py-3">{row.shop_type}</td>
                       <td className="px-4 py-3">{row.purchase_bill_number ? `#${row.purchase_bill_number}` : '-'}</td>

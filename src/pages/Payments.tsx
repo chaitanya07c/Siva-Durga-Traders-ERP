@@ -16,12 +16,14 @@ import type { GroupedSession, BillBreakdown } from "@/lib/pdfUtils"
 import type { Shop } from "@/types/database"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
+import { formatDate } from "@/lib/utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
 export function Payments() {
   const { lang } = useOutletContext<{ lang: "en" | "te" }>()
   const [activeTab, setActiveTab] = useState<'Pending' | 'Completed'>('Pending')
+  const [activeCategory, setActiveCategory] = useState<'Wine' | 'Akividu Wine' | 'Iron'>('Wine')
   const [groupedSessions, setGroupedSessions] = useState<GroupedSession[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [overallPending, setOverallPending] = useState(0)
@@ -434,9 +436,11 @@ export function Payments() {
     }
   }
 
-  const filteredSessions = groupedSessions.filter(s => 
-    s.shop_name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredSessions = groupedSessions.filter(s => {
+    const matchesSearch = s.shop_name.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesCategory = s.shop_type === activeCategory
+    return matchesSearch && matchesCategory
+  })
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -477,7 +481,7 @@ export function Payments() {
         </div>
       </div>
 
-      <div className="flex justify-between items-center border-b pb-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b pb-4">
         <div className="flex gap-2">
           <button
             onClick={() => setActiveTab('Pending')}
@@ -506,18 +510,53 @@ export function Payments() {
           <input 
             type="text" 
             placeholder={t("searchShop", lang)} 
-            className="pl-9 pr-4 py-2 border rounded-lg text-sm w-64"
+            className="pl-9 pr-4 py-2 border rounded-lg text-sm w-full md:w-64"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
           />
         </div>
       </div>
 
-      <div className="bg-card border rounded-xl shadow-sm overflow-hidden min-h-[500px]">
+      {/* Category Tabs */}
+      <div className="flex border-b bg-card rounded-t-xl px-2 pt-2 gap-2">
+        <button
+          onClick={() => setActiveCategory('Wine')}
+          className={`px-4 py-2 font-semibold text-sm transition-colors border-b-2 ${
+            activeCategory === 'Wine'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {lang === 'te' ? "వైన్ షాపులు" : "Wine Shops"}
+        </button>
+        <button
+          onClick={() => setActiveCategory('Akividu Wine')}
+          className={`px-4 py-2 font-semibold text-sm transition-colors border-b-2 ${
+            activeCategory === 'Akividu Wine'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {lang === 'te' ? "ఆకివీడు వైన్ షాపులు" : "Akividu Wine Shops"}
+        </button>
+        <button
+          onClick={() => setActiveCategory('Iron')}
+          className={`px-4 py-2 font-semibold text-sm transition-colors border-b-2 ${
+            activeCategory === 'Iron'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {lang === 'te' ? "ఐరన్ షాపులు" : "Iron Shops"}
+        </button>
+      </div>
+
+      <div className="bg-card border rounded-b-xl shadow-sm overflow-hidden min-h-[500px]">
         <div className="overflow-x-auto p-4">
           <table className="w-full text-sm text-left">
             <thead className="bg-muted">
               <tr>
+                <th className="px-4 py-3 font-semibold w-16">S.No.</th>
                 <th className="px-4 py-3 font-semibold">{t("name", lang)}</th>
                 <th className="px-4 py-3 font-semibold">{t("type", lang)}</th>
                 <th className="px-4 py-3 font-semibold text-center">{t("totalBills", lang)}</th>
@@ -529,16 +568,17 @@ export function Payments() {
             </thead>
             <tbody>
               {filteredSessions.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No {activeTab.toLowerCase()} payments found.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">No {activeTab.toLowerCase()} payments found.</td></tr>
               ) : (
-                filteredSessions.map(session => (
+                filteredSessions.map((session, index) => (
                   <tr key={session.id} className="border-b hover:bg-muted/10 transition-colors">
+                    <td className="px-4 py-4 text-muted-foreground">{index + 1}</td>
                     <td className="px-4 py-4 font-semibold text-primary">{session.shop_name}</td>
                     <td className="px-4 py-4 text-muted-foreground">{session.shop_type}</td>
                     <td className="px-4 py-4 text-center">
                       <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold">{session.billsCount}</span>
                     </td>
-                    <td className="px-4 py-4">{session.date}</td>
+                    <td className="px-4 py-4">{formatDate(session.date)}</td>
                     <td className="px-4 py-4 text-right font-bold text-[15px]">₹{formatInr(session.overallTotal)}</td>
                     <td className="px-4 py-4 text-center">
                       {session.status === 'Pending' ? (
@@ -596,7 +636,7 @@ export function Payments() {
             <div className="p-5 border-b flex justify-between items-center sticky top-0 bg-background z-10">
               <div>
                 <h2 className="text-xl font-bold">Session Details</h2>
-                <p className="text-sm text-muted-foreground">{detailsModal.session.shop_name} • {detailsModal.session.date}</p>
+                <p className="text-sm text-muted-foreground">{detailsModal.session.shop_name} • {formatDate(detailsModal.session.date)}</p>
               </div>
               <div className="text-right">
                 <div className="text-sm text-muted-foreground">Overall Total</div>
@@ -633,12 +673,14 @@ export function Payments() {
                           <div className="bg-slate-100 px-4 py-2 border-b flex justify-between items-center font-semibold">
                             <div className="flex items-center gap-2">
                               <span>Bill {globalBillCounter} {bill.billNumber ? `(#${bill.billNumber})` : ''}</span>
-                              <button
-                                onClick={() => handleEditBillInitiate(bill)}
-                                className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
-                              >
-                                Edit
-                              </button>
+                              {detailsModal.session.status === 'Pending' && (
+                                <button
+                                  onClick={() => handleEditBillInitiate(bill)}
+                                  className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
+                                >
+                                  Edit
+                                </button>
+                              )}
                             </div>
                             <span>₹{formatInr(bill.grandTotal)}</span>
                           </div>
@@ -647,6 +689,7 @@ export function Payments() {
                               <table className="w-full text-sm">
                                 <thead className="text-muted-foreground border-b text-left">
                                   <tr>
+                                    <th className="pb-2 w-12">S.No.</th>
                                     <th className="pb-2">Item</th>
                                     <th className="pb-2 text-center">Qty</th>
                                     <th className="pb-2 text-right">Rate</th>
@@ -656,6 +699,7 @@ export function Payments() {
                                 <tbody className="divide-y divide-slate-100">
                                   {bill.items.filter(i => i.quantity > 0).map((item, i) => (
                                     <tr key={i}>
+                                      <td className="py-2 text-muted-foreground">{i + 1}</td>
                                       <td className="py-2">{item.name}</td>
                                       <td className="py-2 text-center">{formatQuantity(item.name, item.quantity)}</td>
                                       <td className="py-2 text-right">₹{item.rate}</td>
@@ -687,7 +731,7 @@ export function Payments() {
                     {detailsModal.session.payment_date && (
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground font-medium">Payment Date</span>
-                        <span className="font-semibold text-slate-900">{detailsModal.session.payment_date.split('-').reverse().join('-')}</span>
+                        <span className="font-semibold text-slate-900">{formatDate(detailsModal.session.payment_date)}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center text-sm">
@@ -711,10 +755,55 @@ export function Payments() {
               )}
             </div>
 
-            <div className="p-4 border-t sticky bottom-0 bg-background flex justify-end">
+            <div className="p-4 border-t sticky bottom-0 bg-background flex flex-wrap justify-end gap-2">
+              <button
+                onClick={() => {
+                  const s = detailsModal.session
+                  if ((s as any).isCombinedGroup) {
+                    const targetShop = shops.find(sh => sh.id === s.shop_id) || (s as any).shopsInGroup[0]
+                    generateCombinedGroupPDF((s as any).shopsInGroup, 'download', lang, targetShop, s.bill_ids)
+                  } else {
+                    generateCombinedPDF(s, 'download', lang)
+                  }
+                }}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-medium text-sm flex items-center transition-colors border"
+              >
+                <Download className="w-4 h-4 mr-1.5" /> Download PDF
+              </button>
+
+              <button
+                onClick={() => {
+                  const s = detailsModal.session
+                  if ((s as any).isCombinedGroup) {
+                    const targetShop = shops.find(sh => sh.id === s.shop_id) || (s as any).shopsInGroup[0]
+                    generateCombinedGroupPDF((s as any).shopsInGroup, 'print', lang, targetShop, s.bill_ids)
+                  } else {
+                    generateCombinedPDF(s, 'print', lang)
+                  }
+                }}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-medium text-sm flex items-center transition-colors border"
+              >
+                <Printer className="w-4 h-4 mr-1.5" /> Print Bill
+              </button>
+
+              <button
+                onClick={() => {
+                  const s = detailsModal.session
+                  if ((s as any).isCombinedGroup) {
+                    const targetShop = shops.find(sh => sh.id === s.shop_id) || (s as any).shopsInGroup[0]
+                    shareCombinedGroupWhatsApp((s as any).shopsInGroup, lang, targetShop, s.bill_ids)
+                  } else {
+                    shareWhatsApp(s, lang)
+                  }
+                }}
+                className="px-4 py-2 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg font-medium text-sm flex items-center transition-colors border border-green-200"
+              >
+                <Share2 className="w-4 h-4 mr-1.5" /> Share via WhatsApp
+              </button>
+
               <button 
                 onClick={() => setDetailsModal(null)} 
-                className="px-6 py-2 border rounded-lg font-medium hover:bg-muted"
+                className="px-6 py-2 border rounded-lg font-medium hover:bg-muted text-sm"
               >
                 Close Details
               </button>

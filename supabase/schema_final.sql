@@ -137,6 +137,17 @@ CREATE TABLE IF NOT EXISTS public.completed_loadings (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Expenses Register
+CREATE TABLE IF NOT EXISTS public.expenses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    category TEXT NOT NULL,
+    description TEXT NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL,
+    remarks TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- 3. Create Current Stock View
 CREATE OR REPLACE VIEW public.current_stock AS
 SELECT 
@@ -163,6 +174,7 @@ CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON public.sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_material_id ON public.sale_items(material_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_employee_date ON public.attendance(employee_id, date);
 CREATE INDEX IF NOT EXISTS idx_completed_loadings_shop ON public.completed_loadings(shop_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON public.expenses(date);
 
 -- 5. Enable Row Level Security (RLS)
 ALTER TABLE public.shops ENABLE ROW LEVEL SECURITY;
@@ -175,6 +187,7 @@ ALTER TABLE public.sale_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.completed_loadings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 
 -- 6. Create RLS Policies
 CREATE POLICY "Allow public all on shops" ON public.shops FOR ALL USING (true) WITH CHECK (true);
@@ -187,6 +200,7 @@ CREATE POLICY "Allow public all on sale_items" ON public.sale_items FOR ALL USIN
 CREATE POLICY "Allow public all on employees" ON public.employees FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all on attendance" ON public.attendance FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all on completed_loadings" ON public.completed_loadings FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all on expenses" ON public.expenses FOR ALL USING (true) WITH CHECK (true);
 
 -- 7. PostgREST Cache Refresh Notification
 NOTIFY pgrst, 'reload schema';

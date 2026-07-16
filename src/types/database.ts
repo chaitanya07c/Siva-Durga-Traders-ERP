@@ -117,3 +117,13 @@ export type Buyer = {
   name_te?: string | null
   created_at: string
 }
+
+export type Expense = {
+  id: string
+  date: string
+  category: string
+  description: string
+  amount: number
+  remarks: string | null
+  created_at: string
+}

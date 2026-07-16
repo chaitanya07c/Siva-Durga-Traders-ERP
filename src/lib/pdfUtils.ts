@@ -3,6 +3,7 @@ import type { Shop } from "@/types/database"
 import { toast } from "sonner"
 import jsPDF from "jspdf"
 import { t } from "./i18n"
+import { formatDate } from "./utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -134,7 +135,7 @@ export const generateCombinedPDF = async (session: GroupedSession, action: 'down
       
       const landmarkText = lang === 'te' && shop.landmark_te ? shop.landmark_te : (shop.landmark || '')
       doc.text(`${t('landmark', lang).toUpperCase()}:  ${landmarkText}`, 12, y + 27)
-      doc.text(`${t('date', lang).toUpperCase()}:  ${bill.date}`, 140, y + 27)
+      doc.text(`${t('date', lang).toUpperCase()}:  ${formatDate(bill.date)}`, 140, y + 27)
       
       doc.line(10, y + 29, 200, y + 29)
       
@@ -204,9 +205,7 @@ export const generateCombinedPDF = async (session: GroupedSession, action: 'down
       
       tableY += 7
       
-      const paymentDate = session.payment_date 
-        ? session.payment_date.split('-').reverse().join('-') 
-        : new Date().toISOString().split('T')[0].split('-').reverse().join('-')
+      const paymentDate = formatDate(session.payment_date || new Date().toISOString().split('T')[0])
         
       let paymentStatus = t('pending', lang)
       if (session.status === 'Completed') {
@@ -528,7 +527,7 @@ export const generateCombinedGroupPDF = async (
       
       const landmarkText = lang === 'te' && bill.shop.landmark_te ? bill.shop.landmark_te : (bill.shop.landmark || '')
       doc.text(`${t('landmark', lang).toUpperCase()}:  ${landmarkText}`, 12, y + 27)
-      doc.text(`${t('date', lang).toUpperCase()}:  ${bill.date}`, 140, y + 27)
+      doc.text(`${t('date', lang).toUpperCase()}:  ${formatDate(bill.date)}`, 140, y + 27)
       
       doc.line(10, y + 29, 200, y + 29)
       
@@ -599,7 +598,7 @@ export const generateCombinedGroupPDF = async (
       
       tableY += 7
       
-      const paymentDate = new Date().toISOString().split('T')[0].split('-').reverse().join('-')
+      const paymentDate = formatDate(new Date())
       let paymentStatus = t('pending', lang)
 
       doc.setFont("helvetica", "normal")

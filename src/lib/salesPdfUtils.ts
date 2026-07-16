@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import jsPDF from "jspdf"
 import { t } from "./i18n"
+import { formatDate } from "./utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -109,7 +110,7 @@ export const generateSalesCombinedPDF = async (session: GroupedSaleSession, acti
       
       doc.line(10, y + 22, 200, y + 22)
       
-      doc.text(`${t('date', lang).toUpperCase()}:  ${bill.date}`, 140, y + 27)
+      doc.text(`${t('date', lang).toUpperCase()}:  ${formatDate(bill.date)}`, 140, y + 27)
       
       doc.line(10, y + 29, 200, y + 29)
       
@@ -173,9 +174,7 @@ export const generateSalesCombinedPDF = async (session: GroupedSaleSession, acti
       
       tableY += 7
       
-      const paymentDate = session.payment_date 
-        ? session.payment_date.split('-').reverse().join('-') 
-        : new Date().toISOString().split('T')[0].split('-').reverse().join('-')
+      const paymentDate = formatDate(session.payment_date || new Date().toISOString().split('T')[0])
         
       let paymentStatus = t('pending', lang)
       if (session.status === 'Completed') {

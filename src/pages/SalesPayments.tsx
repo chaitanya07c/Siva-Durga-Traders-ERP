@@ -6,6 +6,7 @@ import { fetchSalesBillBreakdowns, generateSalesCombinedPDF, shareSalesWhatsApp,
 import type { GroupedSaleSession, SalesBillBreakdown } from "@/lib/salesPdfUtils"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
+import { formatDate } from "@/lib/utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -313,6 +314,7 @@ export function SalesPayments() {
           <table className="w-full text-sm text-left">
             <thead className="bg-muted">
               <tr>
+                <th className="px-4 py-3 font-semibold w-16">S.No.</th>
                 <th className="px-4 py-3 font-semibold">{t("addBuyer", lang).replace("New ", "")}</th>
                 <th className="px-4 py-3 font-semibold text-center">{t("invoiceCount", lang)}</th>
                 <th className="px-4 py-3 font-semibold">{t("latestDate", lang)}</th>
@@ -323,15 +325,16 @@ export function SalesPayments() {
             </thead>
             <tbody>
               {filteredSessions.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No {activeTab.toLowerCase()} payments found.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No {activeTab.toLowerCase()} payments found.</td></tr>
               ) : (
-                filteredSessions.map(session => (
+                filteredSessions.map((session, index) => (
                   <tr key={session.id} className="border-b hover:bg-muted/10 transition-colors">
+                    <td className="px-4 py-4 text-muted-foreground">{index + 1}</td>
                     <td className="px-4 py-4 font-semibold text-primary">{session.buyer_name}</td>
                     <td className="px-4 py-4 text-center">
                       <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold">{session.billsCount}</span>
                     </td>
-                    <td className="px-4 py-4">{session.date}</td>
+                    <td className="px-4 py-4">{formatDate(session.date)}</td>
                     <td className="px-4 py-4 text-right font-bold text-[15px]">₹{formatInr(session.overallTotal)}</td>
                     <td className="px-4 py-4 text-center">
                       {session.status === 'Pending' ? (
@@ -374,7 +377,7 @@ export function SalesPayments() {
             <div className="p-5 border-b flex justify-between items-center sticky top-0 bg-background z-10">
               <div>
                 <h2 className="text-xl font-bold">Session Details</h2>
-                <p className="text-sm text-muted-foreground">{detailsModal.session.buyer_name} • {detailsModal.session.date}</p>
+                <p className="text-sm text-muted-foreground">{detailsModal.session.buyer_name} • {formatDate(detailsModal.session.date)}</p>
               </div>
               <div className="text-right">
                 <div className="text-sm text-muted-foreground">Overall Amount</div>
@@ -389,12 +392,14 @@ export function SalesPayments() {
                     <div className="bg-slate-100 px-4 py-2 border-b flex justify-between items-center font-semibold">
                       <div className="flex items-center gap-2">
                         <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''}</span>
-                        <button
-                          onClick={() => handleEditInvoiceInitiate(bill)}
-                          className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
-                        >
-                          Edit
-                        </button>
+                        {detailsModal.session.status === 'Pending' && (
+                          <button
+                            onClick={() => handleEditInvoiceInitiate(bill)}
+                            className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
+                          >
+                            Edit
+                          </button>
+                        )}
                       </div>
                       <span>₹{formatInr(bill.grandTotal)}</span>
                     </div>
@@ -403,6 +408,7 @@ export function SalesPayments() {
                         <table className="w-full text-sm">
                           <thead className="text-muted-foreground border-b text-left">
                             <tr>
+                              <th className="pb-2 w-12">S.No.</th>
                               <th className="pb-2">Item</th>
                               <th className="pb-2 text-center">Qty</th>
                               <th className="pb-2 text-right">Rate</th>
@@ -412,6 +418,7 @@ export function SalesPayments() {
                           <tbody className="divide-y divide-slate-100">
                             {bill.items.filter(i => i.quantity > 0).map((item, i) => (
                               <tr key={i}>
+                                <td className="py-2 text-muted-foreground">{i + 1}</td>
                                 <td className="py-2">{item.name}</td>
                                 <td className="py-2 text-center">{formatQuantity(item.name, item.quantity)}</td>
                                 <td className="py-2 text-right">₹{item.rate}</td>
@@ -440,7 +447,7 @@ export function SalesPayments() {
                     {detailsModal.session.payment_date && (
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground font-medium">Payment Date</span>
-                        <span className="font-semibold text-slate-900">{detailsModal.session.payment_date.split('-').reverse().join('-')}</span>
+                        <span className="font-semibold text-slate-900">{formatDate(detailsModal.session.payment_date)}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center text-sm">

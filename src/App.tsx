@@ -7,6 +7,7 @@ import { Purchasing } from "./pages/Purchasing"
 import { Payments } from "./pages/Payments"
 import { Sales } from "./pages/Sales"
 import { Workers } from "./pages/Workers"
+import { Expenses } from "./pages/Expenses"
 import { Loading } from "./pages/Loading"
 import { Reports } from "./pages/Reports"
 import { Settings } from "./pages/Settings"
@@ -25,6 +26,7 @@ function App() {
           <Route path="sales-payments" element={<SalesPayments />} />
           <Route path="loading" element={<Loading />} />
           <Route path="workers" element={<Workers />} />
+          <Route path="expenses" element={<Expenses />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
         </Route>
