@@ -39,7 +39,8 @@ export function Payments() {
     shopsInGroup: Shop[], 
     targetShop: Shop, 
     label: string,
-    billIds?: string[]
+    billIds?: string[],
+    date?: string
   } | null>(null)
 
   useEffect(() => {
@@ -268,7 +269,8 @@ export function Payments() {
           shopsInGroup: (paymentModal as any).shopsInGroup,
           targetShop: shops.find(s => s.id === paymentModal.shop_id) || (paymentModal as any).shopsInGroup[0],
           label: lang === 'te' ? "కంబైన్డ్ బిల్లు" : "Combined Bill",
-          billIds: paymentModal.bill_ids
+          billIds: paymentModal.bill_ids,
+          date: paymentModal.date
         })
       } else {
         const sessionToExport = { ...paymentModal, session_partial_payment: partialPayment, payment_date: today, status: 'Completed' as const }
@@ -779,7 +781,7 @@ export function Payments() {
                   const targetShop = shops.find(sh => sh.id === s.shop_id)
                   if ((s as any).isCombinedGroup) {
                     const groupTargetShop = targetShop || (s as any).shopsInGroup[0]
-                    generateCombinedGroupPDF((s as any).shopsInGroup, 'download', lang, groupTargetShop, s.bill_ids, detailsModal.bills)
+                    generateCombinedGroupPDF((s as any).shopsInGroup, 'download', lang, groupTargetShop, s.bill_ids, detailsModal.bills, s.date)
                   } else {
                     generateCombinedPDF(s, 'download', lang, detailsModal.bills, targetShop)
                   }
@@ -795,7 +797,7 @@ export function Payments() {
                   const targetShop = shops.find(sh => sh.id === s.shop_id)
                   if ((s as any).isCombinedGroup) {
                     const groupTargetShop = targetShop || (s as any).shopsInGroup[0]
-                    generateCombinedGroupPDF((s as any).shopsInGroup, 'print', lang, groupTargetShop, s.bill_ids, detailsModal.bills)
+                    generateCombinedGroupPDF((s as any).shopsInGroup, 'print', lang, groupTargetShop, s.bill_ids, detailsModal.bills, s.date)
                   } else {
                     generateCombinedPDF(s, 'print', lang, detailsModal.bills, targetShop)
                   }
@@ -811,7 +813,7 @@ export function Payments() {
                   const targetShop = shops.find(sh => sh.id === s.shop_id)
                   if ((s as any).isCombinedGroup) {
                     const groupTargetShop = targetShop || (s as any).shopsInGroup[0]
-                    shareCombinedGroupWhatsApp((s as any).shopsInGroup, lang, groupTargetShop, s.bill_ids, detailsModal.bills)
+                    shareCombinedGroupWhatsApp((s as any).shopsInGroup, lang, groupTargetShop, s.bill_ids, detailsModal.bills, s.date)
                   } else {
                     shareWhatsApp(s, lang, detailsModal.bills, targetShop)
                   }
@@ -934,19 +936,19 @@ export function Payments() {
             
             <div className="w-full flex flex-col gap-3">
               <button 
-                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'download', lang, groupExportPrompt.targetShop, groupExportPrompt.billIds)} 
+                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'download', lang, groupExportPrompt.targetShop, groupExportPrompt.billIds, undefined, groupExportPrompt.date)} 
                 className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors"
               >
                 <Download className="w-5 h-5 mr-2" /> {lang === 'te' ? "డౌన్‌లోడ్ PDF" : "Download PDF"}
               </button>
               <button 
-                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'print', lang, groupExportPrompt.targetShop, groupExportPrompt.billIds)} 
+                onClick={() => generateCombinedGroupPDF(groupExportPrompt.shopsInGroup, 'print', lang, groupExportPrompt.targetShop, groupExportPrompt.billIds, undefined, groupExportPrompt.date)} 
                 className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors"
               >
                 <Printer className="w-5 h-5 mr-2" /> {lang === 'te' ? "ప్రింట్ బిల్" : "Print Bill"}
               </button>
               <button 
-                onClick={() => shareCombinedGroupWhatsApp(groupExportPrompt.shopsInGroup, lang, groupExportPrompt.targetShop, groupExportPrompt.billIds)} 
+                onClick={() => shareCombinedGroupWhatsApp(groupExportPrompt.shopsInGroup, lang, groupExportPrompt.targetShop, groupExportPrompt.billIds, undefined, groupExportPrompt.date)} 
                 className="w-full flex items-center justify-center py-3 bg-green-50 text-green-700 hover:bg-green-100 rounded-xl font-medium transition-colors"
               >
                 <Share2 className="w-5 h-5 mr-2" /> {lang === 'te' ? "వాట్సాప్ ద్వారా షేర్ చేయండి" : "Share via WhatsApp"}

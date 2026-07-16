@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { formatDate } from "./utils"
+import { formatDate, formatFilenameDate } from "./utils"
 
 import { formatQuantity, generateProfessionalPDF, type PDFDocumentData } from "./pdfTemplate"
 export { formatQuantity }
@@ -85,7 +85,7 @@ export const generateSalesCombinedPDF = async (
     const documentData: PDFDocumentData = {
       title: "SALES INVOICE",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
-      filename: `SalesCombinedBill_${(session.buyer_name || 'Buyer').replace(/\s+/g, '_')}_${session.date || 'date'}.pdf`,
+      filename: `${session.buyer_name || 'Buyer'}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
       bills: bills.map(bill => {
         const metadataLeft = [
           `Buyer Name: ${session.buyer_name || 'Unknown'}`,
@@ -145,7 +145,7 @@ export const shareSalesWhatsApp = async (
 
     const file = new File(
       [pdfBlob],
-      `SalesCombinedBill_${(session?.buyer_name || 'Buyer').replace(/\s+/g, '_')}_${session.date || 'date'}.pdf`,
+      `${session?.buyer_name || 'Buyer'}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
       { type: "application/pdf" }
     )
 
@@ -154,8 +154,6 @@ export const shareSalesWhatsApp = async (
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
-          title: "Siva Durga Traders Bill",
-          text: `Bill for ${session?.buyer_name || 'Buyer'} - Date: ${session.date || ''}`,
           files: [file]
         })
       } catch (shareErr: any) {

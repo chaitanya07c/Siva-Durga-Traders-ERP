@@ -27,3 +27,22 @@ export function formatDate(dateVal: string | Date | null | undefined): string {
     return String(dateVal)
   }
 }
+
+export function formatFilenameDate(dateVal: string | Date | null | undefined): string {
+  if (!dateVal) {
+    const d = new Date()
+    const day = String(d.getDate()).padStart(2, '0')
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const year = d.getFullYear()
+    return `${day}-${month}-${year}`
+  }
+  const formatted = formatDate(dateVal)
+  if (formatted === "-") {
+    const d = new Date()
+    const day = String(d.getDate()).padStart(2, '0')
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const year = d.getFullYear()
+    return `${day}-${month}-${year}`
+  }
+  return formatted.replace(/\//g, "-")
+}

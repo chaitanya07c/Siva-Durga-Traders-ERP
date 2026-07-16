@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase"
 import type { Shop } from "@/types/database"
 import { toast } from "sonner"
-import { formatDate } from "./utils"
+import { formatDate, formatFilenameDate } from "./utils"
 
 import { formatQuantity, generateProfessionalPDF, type PDFDocumentData } from "./pdfTemplate"
 export { formatQuantity }
@@ -135,7 +135,7 @@ export const generateCombinedPDF = async (
     const documentData: PDFDocumentData = {
       title: "PURCHASE INVOICE",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
-      filename: `CombinedBill_${(shop?.name || 'Shop').replace(/\s+/g, '_')}_${session.date || 'date'}.pdf`,
+      filename: `${shop?.name || 'Shop'}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
       bills: bills.map(bill => {
         const shopName = lang === 'te' && bill.shop?.name_te ? bill.shop.name_te : (bill.shop?.name || shop?.name || 'Unknown Shop')
         const landmarkText = lang === 'te' && (bill.shop?.landmark_te || shop?.landmark_te) ? (bill.shop?.landmark_te || shop?.landmark_te) : (bill.shop?.landmark || shop?.landmark || '')
@@ -208,7 +208,7 @@ export const shareWhatsApp = async (
 
     const file = new File(
       [pdfBlob],
-      `CombinedBill_${(shop?.name || 'Shop').replace(/\s+/g, '_')}_${session.date || 'date'}.pdf`,
+      `${shop?.name || 'Shop'}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
       { type: "application/pdf" }
     )
 
@@ -217,8 +217,6 @@ export const shareWhatsApp = async (
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
-          title: "Siva Durga Traders Bill",
-          text: `Bill for ${shop?.name || 'Shop'} - Date: ${session.date || ''}`,
           files: [file]
         })
       } catch (shareErr: any) {
@@ -314,7 +312,8 @@ export const generateCombinedGroupPDF = async (
   lang: 'en' | 'te' = 'en',
   targetShop: Shop,
   billIds?: string[],
-  preloadedBills?: BillBreakdown[]
+  preloadedBills?: BillBreakdown[],
+  date?: string
 ): Promise<Blob | undefined> => {
   const toastId = toast.loading("Generating Combined PDF...")
   try {
@@ -404,10 +403,11 @@ export const generateCombinedGroupPDF = async (
       paymentStatus = "Partial Paid"
     }
 
+    const dateToUse = date || reconstructedBills[0]?.date
     const documentData: PDFDocumentData = {
       title: "PURCHASE INVOICE",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
-      filename: `CombinedGroupBill_${targetShop.name.replace(/\s+/g, '_')}.pdf`,
+      filename: `${targetShop.name || 'Group'}_${formatFilenameDate(dateToUse)}.pdf`,
       bills: reconstructedBills.map(bill => {
         const shopName = lang === 'te' && bill.shop?.name_te ? bill.shop.name_te : (bill.shop?.name || 'Unknown Shop')
         const landmarkText = lang === 'te' && bill.shop?.landmark_te ? bill.shop.landmark_te : (bill.shop?.landmark || '')
@@ -462,11 +462,12 @@ export const shareCombinedGroupWhatsApp = async (
   lang: 'en' | 'te' = 'en',
   targetShop: Shop,
   billIds?: string[],
-  preloadedBills?: BillBreakdown[]
+  preloadedBills?: BillBreakdown[],
+  date?: string
 ) => {
   const toastId = toast.loading("Preparing combined PDF for WhatsApp sharing...")
   try {
-    const pdfBlob = await generateCombinedGroupPDF(shopsInGroup, 'blob', lang, targetShop, billIds, preloadedBills)
+    const pdfBlob = await generateCombinedGroupPDF(shopsInGroup, 'blob', lang, targetShop, billIds, preloadedBills, date)
     if (!pdfBlob) {
       toast.dismiss(toastId)
       toast.error("Failed to generate PDF")
@@ -475,7 +476,7 @@ export const shareCombinedGroupWhatsApp = async (
 
     const file = new File(
       [pdfBlob],
-      `CombinedGroupBill_${(targetShop?.name || 'Group').replace(/\s+/g, '_')}.pdf`,
+      `${targetShop?.name || 'Group'}_${formatFilenameDate(date)}.pdf`,
       { type: "application/pdf" }
     )
 
@@ -484,19 +485,17 @@ export const shareCombinedGroupWhatsApp = async (
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
-          title: "Siva Durga Traders Combined Bill",
-          text: `Combined bill for group starting from ${targetShop?.name || 'Group'}`,
           files: [file]
         })
       } catch (shareErr: any) {
         if (shareErr.name !== 'AbortError') {
           console.error("WhatsApp share failed:", shareErr)
           toast.error("Sharing failed. Downloading instead.")
-          await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds, preloadedBills)
+          await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds, preloadedBills, date)
         }
       }
     } else {
-      await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds, preloadedBills)
+      await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds, preloadedBills, date)
       alert("Your browser doesn't support direct PDF sharing.")
     }
   } catch (error) {
