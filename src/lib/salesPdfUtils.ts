@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import jsPDF from "jspdf"
-import "jspdf-autotable"
+import autoTable from "jspdf-autotable"
 import { t } from "./i18n"
 import { formatDate } from "./utils"
 
@@ -145,8 +145,7 @@ export const generateSalesCombinedPDF = async (
 
       const startTableY = y + 15
 
-      // @ts-ignore
-      doc.autoTable({
+      autoTable(doc, {
         startY: startTableY,
         margin: { left: 15, right: 15 },
         head: [['No', t('category', lang).toUpperCase(), t('quantity', lang).toUpperCase(), t('rate', lang).toUpperCase(), t('amount', lang).toUpperCase()]],
@@ -180,8 +179,7 @@ export const generateSalesCombinedPDF = async (
         }
       })
 
-      // @ts-ignore
-      y = doc.lastAutoTable.finalY + 5
+      y = (doc as any).lastAutoTable.finalY + 5
 
       doc.setFont("helvetica", "bold")
       doc.setFontSize(10.5)
