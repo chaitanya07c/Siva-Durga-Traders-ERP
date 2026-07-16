@@ -471,10 +471,31 @@ export function SalesPayments() {
               )}
             </div>
 
-            <div className="p-4 border-t sticky bottom-0 bg-background flex justify-end">
+            <div className="p-4 border-t sticky bottom-0 bg-background flex flex-wrap justify-end gap-2">
+              <button
+                onClick={() => generateSalesCombinedPDF(detailsModal.session, 'download', lang, detailsModal.bills)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-medium text-sm flex items-center transition-colors border"
+              >
+                <Download className="w-4 h-4 mr-1.5" /> Download PDF
+              </button>
+
+              <button
+                onClick={() => generateSalesCombinedPDF(detailsModal.session, 'print', lang, detailsModal.bills)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-medium text-sm flex items-center transition-colors border"
+              >
+                <Printer className="w-4 h-4 mr-1.5" /> Print Bill
+              </button>
+
+              <button
+                onClick={() => shareSalesWhatsApp(detailsModal.session, lang, detailsModal.bills)}
+                className="px-4 py-2 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg font-medium text-sm flex items-center transition-colors border border-green-200"
+              >
+                <Share2 className="w-4 h-4 mr-1.5" /> Share via WhatsApp
+              </button>
+
               <button 
                 onClick={() => setDetailsModal(null)} 
-                className="px-6 py-2 border rounded-lg font-medium hover:bg-muted"
+                className="px-6 py-2 border rounded-lg font-medium hover:bg-muted ml-2"
               >
                 Close Details
               </button>

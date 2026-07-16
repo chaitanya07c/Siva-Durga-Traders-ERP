@@ -759,11 +759,12 @@ export function Payments() {
               <button
                 onClick={() => {
                   const s = detailsModal.session
+                  const targetShop = shops.find(sh => sh.id === s.shop_id)
                   if ((s as any).isCombinedGroup) {
-                    const targetShop = shops.find(sh => sh.id === s.shop_id) || (s as any).shopsInGroup[0]
-                    generateCombinedGroupPDF((s as any).shopsInGroup, 'download', lang, targetShop, s.bill_ids)
+                    const groupTargetShop = targetShop || (s as any).shopsInGroup[0]
+                    generateCombinedGroupPDF((s as any).shopsInGroup, 'download', lang, groupTargetShop, s.bill_ids, detailsModal.bills)
                   } else {
-                    generateCombinedPDF(s, 'download', lang)
+                    generateCombinedPDF(s, 'download', lang, detailsModal.bills, targetShop)
                   }
                 }}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-medium text-sm flex items-center transition-colors border"
@@ -774,11 +775,12 @@ export function Payments() {
               <button
                 onClick={() => {
                   const s = detailsModal.session
+                  const targetShop = shops.find(sh => sh.id === s.shop_id)
                   if ((s as any).isCombinedGroup) {
-                    const targetShop = shops.find(sh => sh.id === s.shop_id) || (s as any).shopsInGroup[0]
-                    generateCombinedGroupPDF((s as any).shopsInGroup, 'print', lang, targetShop, s.bill_ids)
+                    const groupTargetShop = targetShop || (s as any).shopsInGroup[0]
+                    generateCombinedGroupPDF((s as any).shopsInGroup, 'print', lang, groupTargetShop, s.bill_ids, detailsModal.bills)
                   } else {
-                    generateCombinedPDF(s, 'print', lang)
+                    generateCombinedPDF(s, 'print', lang, detailsModal.bills, targetShop)
                   }
                 }}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-medium text-sm flex items-center transition-colors border"
@@ -789,11 +791,12 @@ export function Payments() {
               <button
                 onClick={() => {
                   const s = detailsModal.session
+                  const targetShop = shops.find(sh => sh.id === s.shop_id)
                   if ((s as any).isCombinedGroup) {
-                    const targetShop = shops.find(sh => sh.id === s.shop_id) || (s as any).shopsInGroup[0]
-                    shareCombinedGroupWhatsApp((s as any).shopsInGroup, lang, targetShop, s.bill_ids)
+                    const groupTargetShop = targetShop || (s as any).shopsInGroup[0]
+                    shareCombinedGroupWhatsApp((s as any).shopsInGroup, lang, groupTargetShop, s.bill_ids, detailsModal.bills)
                   } else {
-                    shareWhatsApp(s, lang)
+                    shareWhatsApp(s, lang, detailsModal.bills, targetShop)
                   }
                 }}
                 className="px-4 py-2 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg font-medium text-sm flex items-center transition-colors border border-green-200"
@@ -881,13 +884,13 @@ export function Payments() {
             <p className="text-muted-foreground text-sm mb-8">The payment has been marked as completed successfully.</p>
             
             <div className="w-full flex flex-col gap-3">
-              <button onClick={() => generateCombinedPDF(exportPromptSession, 'download')} className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors">
+              <button onClick={() => generateCombinedPDF(exportPromptSession, 'download', lang, undefined, shops.find(sh => sh.id === exportPromptSession.shop_id))} className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors">
                 <Download className="w-5 h-5 mr-2" /> Download PDF
               </button>
-              <button onClick={() => generateCombinedPDF(exportPromptSession, 'print')} className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors">
+              <button onClick={() => generateCombinedPDF(exportPromptSession, 'print', lang, undefined, shops.find(sh => sh.id === exportPromptSession.shop_id))} className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors">
                 <Printer className="w-5 h-5 mr-2" /> Print Bill
               </button>
-              <button onClick={() => shareWhatsApp(exportPromptSession)} className="w-full flex items-center justify-center py-3 bg-green-50 text-green-700 hover:bg-green-100 rounded-xl font-medium transition-colors">
+              <button onClick={() => shareWhatsApp(exportPromptSession, lang, undefined, shops.find(sh => sh.id === exportPromptSession.shop_id))} className="w-full flex items-center justify-center py-3 bg-green-50 text-green-700 hover:bg-green-100 rounded-xl font-medium transition-colors">
                 <Share2 className="w-5 h-5 mr-2" /> Share via WhatsApp
               </button>
               <button onClick={() => setExportPromptSession(null)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium mt-2">

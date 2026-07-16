@@ -38,6 +38,8 @@ export type BillBreakdown = {
   advance?: number
   remarks?: string | null
   session_id?: string
+  shop?: Shop
+  session_partial_payment?: number
 }
 
 export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' | 'te'): Promise<{shop: Shop, bills: BillBreakdown[]}> => {
@@ -78,16 +80,52 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
     }
   }) || []
 
+  const fallbackShop: Shop = {
+    id: session.shop_id || '',
+    name: session.shop_name || 'Unknown',
+    type: session.shop_type || 'Unknown',
+    mobile: null,
+    status: 'Active',
+    address: null,
+    name_te: null,
+    landmark: null,
+    whatsapp: null,
+    address_te: null,
+    created_at: new Date().toISOString(),
+    shop_rates: {},
+    landmark_te: null,
+    purchase_rate: null,
+    contact_person: null,
+    contact_person_te: null,
+    marked_for_loading: false,
+    marked_for_combined_bill: false
+  }
+
+  const shop = (fullBills && fullBills.length > 0) ? ((fullBills as any)[0].shops as Shop || fallbackShop) : fallbackShop
+
   return {
-    shop: (fullBills as any)[0].shops as Shop,
+    shop,
     bills: reconstructedBills
   }
 }
 
-export const generateCombinedPDF = async (session: GroupedSession, action: 'download' | 'print' | 'blob', lang: 'en' | 'te' = 'en'): Promise<Blob | undefined> => {
+export const generateCombinedPDF = async (
+  session: GroupedSession, 
+  action: 'download' | 'print' | 'blob', 
+  lang: 'en' | 'te' = 'en',
+  preloadedBills?: BillBreakdown[],
+  preloadedShop?: Shop
+): Promise<Blob | undefined> => {
   const toastId = toast.loading("Generating PDF...")
   try {
-    const { shop, bills } = await fetchBillBreakdowns(session, lang)
+    let bills = preloadedBills
+    let shop = preloadedShop
+
+    if (!bills || !shop) {
+      const breakdown = await fetchBillBreakdowns(session, lang)
+      if (!bills) bills = breakdown.bills
+      if (!shop) shop = breakdown.shop
+    }
     
     const doc = new jsPDF()
     let y = 15
@@ -121,7 +159,7 @@ export const generateCombinedPDF = async (session: GroupedSession, action: 'down
     y = printHeader(y)
 
     bills.forEach((bill, billIndex) => {
-      let displayItems = bill.items.filter((item: any) => item.quantity > 0 && item.total > 0)
+      let displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0)
       
       const infoHeight = 22
       const tableHeaderHeight = 8
@@ -148,21 +186,21 @@ export const generateCombinedPDF = async (session: GroupedSession, action: 'down
       doc.setFontSize(10.5)
       doc.setTextColor(30, 41, 59)
       
-      const shopName = lang === 'te' && shop.name_te ? shop.name_te : shop.name
+      const shopName = lang === 'te' && shop?.name_te ? shop.name_te : (shop?.name || 'Unknown')
       doc.text(`Shop Name: ${shopName}`, 15, y + 4)
       
       const billNoStr = bill.billNumber ? `#${bill.billNumber}` : '-'
       doc.text(`Bill No: ${billNoStr}`, 135, y + 4)
-      doc.text(`Date: ${formatDate(bill.date)}`, 135, y + 9)
+      doc.text(`Date: ${formatDate(bill.date || new Date().toISOString())}`, 135, y + 9)
 
       doc.setFont("helvetica", "normal")
       doc.setFontSize(9)
       doc.setTextColor(71, 85, 105)
-      const landmarkText = lang === 'te' && shop.landmark_te ? shop.landmark_te : (shop.landmark || '-')
+      const landmarkText = lang === 'te' && shop?.landmark_te ? shop.landmark_te : (shop?.landmark || '-')
       doc.text(`Landmark: ${landmarkText}`, 15, y + 9)
 
-      const contactPerson = lang === 'te' && shop.contact_person_te ? shop.contact_person_te : (shop.contact_person || '-')
-      const contactInfo = contactPerson !== '-' ? `${contactPerson} ${shop.mobile ? `(${shop.mobile})` : ''}` : (shop.mobile || '-')
+      const contactPerson = lang === 'te' && shop?.contact_person_te ? shop.contact_person_te : (shop?.contact_person || '-')
+      const contactInfo = contactPerson !== '-' ? `${contactPerson} ${shop?.mobile ? `(${shop.mobile})` : ''}` : (shop?.mobile || '-')
       doc.text(`Contact: ${contactInfo}`, 15, y + 14)
 
       const startTableY = y + 18
@@ -281,7 +319,8 @@ export const generateCombinedPDF = async (session: GroupedSession, action: 'down
 
     toast.dismiss(toastId)
     if (action === 'download') {
-      doc.save(`CombinedBill_${shop.name.replace(/\s+/g, '_')}_${session.date}.pdf`)
+      const filename = `CombinedBill_${(shop?.name || 'Shop').replace(/\s+/g, '_')}_${session.date || 'date'}.pdf`
+      doc.save(filename)
     } else if (action === 'print') {
       doc.autoPrint()
       window.open(doc.output('bloburl'), '_blank')
@@ -289,16 +328,26 @@ export const generateCombinedPDF = async (session: GroupedSession, action: 'down
       return doc.output('blob')
     }
   } catch (error) {
+    console.error("Failed to generate Combined PDF:", error)
     toast.dismiss(toastId)
     toast.error("Error generating document")
   }
 }
 
-export const shareWhatsApp = async (session: GroupedSession, lang: 'en' | 'te' = 'en') => {
+export const shareWhatsApp = async (
+  session: GroupedSession, 
+  lang: 'en' | 'te' = 'en',
+  preloadedBills?: BillBreakdown[],
+  preloadedShop?: Shop
+) => {
   const toastId = toast.loading("Preparing PDF for sharing...")
   try {
-    const { shop } = await fetchBillBreakdowns(session, lang)
-    const pdfBlob = await generateCombinedPDF(session, 'blob', lang)
+    let shop = preloadedShop
+    if (!shop) {
+      const breakdown = await fetchBillBreakdowns(session, lang)
+      shop = breakdown.shop
+    }
+    const pdfBlob = await generateCombinedPDF(session, 'blob', lang, preloadedBills, shop)
     
     if (!pdfBlob) {
       toast.dismiss(toastId)
@@ -308,7 +357,7 @@ export const shareWhatsApp = async (session: GroupedSession, lang: 'en' | 'te' =
 
     const file = new File(
       [pdfBlob],
-      `CombinedBill_${shop.name}_${session.date}.pdf`,
+      `CombinedBill_${(shop?.name || 'Shop').replace(/\s+/g, '_')}_${session.date || 'date'}.pdf`,
       { type: "application/pdf" }
     )
 
@@ -318,20 +367,22 @@ export const shareWhatsApp = async (session: GroupedSession, lang: 'en' | 'te' =
       try {
         await navigator.share({
           title: "Siva Durga Traders Bill",
-          text: `Bill for ${shop.name} - Date: ${session.date}`,
+          text: `Bill for ${shop?.name || 'Shop'} - Date: ${session.date || ''}`,
           files: [file]
         })
       } catch (shareErr: any) {
         if (shareErr.name !== 'AbortError') {
+          console.error("WhatsApp share failed:", shareErr)
           toast.error("Sharing failed. Downloading instead.")
-          await generateCombinedPDF(session, 'download', lang)
+          await generateCombinedPDF(session, 'download', lang, preloadedBills, shop)
         }
       }
     } else {
-      await generateCombinedPDF(session, 'download', lang)
+      await generateCombinedPDF(session, 'download', lang, preloadedBills, shop)
       alert("Your browser doesn't support direct PDF sharing.")
     }
   } catch (error) {
+    console.error("Failed to share via WhatsApp:", error)
     toast.dismiss(toastId)
     toast.error("Error sharing PDF")
   }
@@ -411,80 +462,89 @@ export const generateCombinedGroupPDF = async (
   action: 'download' | 'print' | 'blob', 
   lang: 'en' | 'te' = 'en',
   targetShop: Shop,
-  billIds?: string[]
+  billIds?: string[],
+  preloadedBills?: BillBreakdown[]
 ): Promise<Blob | undefined> => {
   const toastId = toast.loading("Generating Combined PDF...")
   try {
     const shopIds = shopsInGroup.map(s => s.id)
-    
-    let query = supabase
-      .from('purchases')
-      .select('*, shops(*)')
+    let reconstructedBills: BillBreakdown[] = []
 
-    if (billIds && billIds.length > 0) {
-      query = query.in('id', billIds)
+    if (preloadedBills && preloadedBills.length > 0) {
+      reconstructedBills = preloadedBills.map(b => ({
+        ...b,
+        shop: b.shop || shopsInGroup.find(s => s.id === (b as any).shop_id) || targetShop
+      }))
     } else {
-      query = query.in('shop_id', shopIds).eq('payment_status', 'Pending')
-    }
+      let query = supabase
+        .from('purchases')
+        .select('*, shops(*)')
 
-    const { data: fullBills, error: fetchError } = await query.order('date', { ascending: true })
+      if (billIds && billIds.length > 0) {
+        query = query.in('id', billIds)
+      } else {
+        query = query.in('shop_id', shopIds).eq('payment_status', 'Pending')
+      }
 
-    if (fetchError) {
-      console.error("Failed to query group purchases:", fetchError)
-      toast.dismiss(toastId)
-      toast.error("Database error while generating PDF.")
-      return
-    }
+      const { data: fullBills, error: fetchError } = await query.order('date', { ascending: true })
 
-    if (!fullBills || fullBills.length === 0) {
-      toast.dismiss(toastId)
-      toast.error("No pending bills found for this group.")
-      return
-    }
+      if (fetchError) {
+        console.error("Failed to query group purchases:", fetchError)
+        toast.dismiss(toastId)
+        toast.error("Database error while generating PDF.")
+        return
+      }
 
-    const activeShopIds = new Set(fullBills.map(b => b.shop_id))
-    const filteredShopsInGroup = shopsInGroup.filter(s => activeShopIds.has(s.id))
-    console.log("Generating Combined PDF for shops in group:", filteredShopsInGroup.map(s => s.name))
+      if (!fullBills || fullBills.length === 0) {
+        toast.dismiss(toastId)
+        toast.error("No pending bills found for this group.")
+        return
+      }
 
-    const activeBillIds = fullBills.map(b => b.id)
-    const { data: allItems, error: itemsError } = await supabase
-      .from('purchase_items')
-      .select('*, materials(name, name_te)')
-      .in('purchase_id', activeBillIds)
+      const activeShopIds = new Set(fullBills.map(b => b.shop_id))
+      const filteredShopsInGroup = shopsInGroup.filter(s => activeShopIds.has(s.id))
+      console.log("Generating Combined PDF for shops in group:", filteredShopsInGroup.map(s => s.name))
 
-    if (itemsError) {
-      console.error("Failed to query purchase items for group:", itemsError)
-      toast.dismiss(toastId)
-      toast.error("Database error loading items breakdown.")
-      return
-    }
+      const activeBillIds = fullBills.map(b => b.id)
+      const { data: allItems, error: itemsError } = await supabase
+        .from('purchase_items')
+        .select('*, materials(name, name_te)')
+        .in('purchase_id', activeBillIds)
 
-    const reconstructedBills = fullBills.map(fb => {
-      const itemsForBill = allItems?.filter(i => i.purchase_id === fb.id) || []
-      const formattedItems = itemsForBill.map(i => {
-        const matName = lang === 'te' && i.materials?.name_te ? i.materials.name_te : ((i.materials as any)?.name || 'Unknown')
+      if (itemsError) {
+        console.error("Failed to query purchase items for group:", itemsError)
+        toast.dismiss(toastId)
+        toast.error("Database error loading items breakdown.")
+        return
+      }
+
+      reconstructedBills = fullBills.map(fb => {
+        const itemsForBill = allItems?.filter(i => i.purchase_id === fb.id) || []
+        const formattedItems = itemsForBill.map(i => {
+          const matName = lang === 'te' && i.materials?.name_te ? i.materials.name_te : ((i.materials as any)?.name || 'Unknown')
+          return {
+            name: i.item_name || matName,
+            quantity: i.quantity,
+            rate: i.rate,
+            total: i.total
+          }
+        })
+        
         return {
-          name: i.item_name || matName,
-          quantity: i.quantity,
-          rate: i.rate,
-          total: i.total
+          id: fb.id,
+          billNumber: fb.bill_number,
+          date: fb.date,
+          items: formattedItems,
+          grandTotal: fb.grand_total,
+          previous_balance: fb.previous_balance || 0,
+          advance: fb.advance || 0,
+          remarks: fb.remarks,
+          shop: fb.shops as Shop,
+          session_id: fb.session_id || fb.id,
+          session_partial_payment: fb.session_partial_payment || 0
         }
       })
-      
-      return {
-        id: fb.id,
-        billNumber: fb.bill_number,
-        date: fb.date,
-        items: formattedItems,
-        grandTotal: fb.grand_total,
-        previous_balance: fb.previous_balance || 0,
-        advance: fb.advance || 0,
-        remarks: fb.remarks,
-        shop: fb.shops as Shop,
-        session_id: fb.session_id || fb.id,
-        session_partial_payment: fb.session_partial_payment || 0
-      }
-    })
+    }
 
     const doc = new jsPDF()
     let y = 15
@@ -545,21 +605,21 @@ export const generateCombinedGroupPDF = async (
       doc.setFontSize(10.5)
       doc.setTextColor(30, 41, 59)
       
-      const shopName = lang === 'te' && bill.shop.name_te ? bill.shop.name_te : bill.shop.name
+      const shopName = lang === 'te' && bill.shop?.name_te ? bill.shop.name_te : (bill.shop?.name || 'Unknown')
       doc.text(`Shop Name: ${shopName}`, 15, y + 4)
       
       const billNoStr = bill.billNumber ? `#${bill.billNumber}` : '-'
       doc.text(`Bill No: ${billNoStr}`, 135, y + 4)
-      doc.text(`Date: ${formatDate(bill.date)}`, 135, y + 9)
+      doc.text(`Date: ${formatDate(bill.date || new Date().toISOString())}`, 135, y + 9)
 
       doc.setFont("helvetica", "normal")
       doc.setFontSize(9)
       doc.setTextColor(71, 85, 105)
-      const landmarkText = lang === 'te' && bill.shop.landmark_te ? bill.shop.landmark_te : (bill.shop.landmark || '-')
+      const landmarkText = lang === 'te' && bill.shop?.landmark_te ? bill.shop.landmark_te : (bill.shop?.landmark || '-')
       doc.text(`Landmark: ${landmarkText}`, 15, y + 9)
 
-      const contactPerson = lang === 'te' && bill.shop.contact_person_te ? bill.shop.contact_person_te : (bill.shop.contact_person || '-')
-      const contactInfo = contactPerson !== '-' ? `${contactPerson} ${bill.shop.mobile ? `(${bill.shop.mobile})` : ''}` : (bill.shop.mobile || '-')
+      const contactPerson = lang === 'te' && bill.shop?.contact_person_te ? bill.shop.contact_person_te : (bill.shop?.contact_person || '-')
+      const contactInfo = contactPerson !== '-' ? `${contactPerson} ${bill.shop?.mobile ? `(${bill.shop.mobile})` : ''}` : (bill.shop?.mobile || '-')
       doc.text(`Contact: ${contactInfo}`, 15, y + 14)
 
       const startTableY = y + 18
@@ -612,9 +672,9 @@ export const generateCombinedGroupPDF = async (
     })
 
     // PAYMENT SUMMARY (Always drawn at the very end)
-    const isCompleted = targetShop.status === 'Completed' || reconstructedBills.every(b => b.grandTotal - b.session_partial_payment <= 0)
+    const isCompleted = targetShop?.status === 'Completed' || reconstructedBills.every(b => b.grandTotal - (b.session_partial_payment || 0) <= 0)
     const overallBillAmount = reconstructedBills.reduce((sum, b) => sum + b.grandTotal, 0)
-    const amountPaid = isCompleted ? overallBillAmount : reconstructedBills.reduce((sum, b) => sum + b.session_partial_payment, 0)
+    const amountPaid = isCompleted ? overallBillAmount : reconstructedBills.reduce((sum, b) => sum + (b.session_partial_payment || 0), 0)
     const balanceAmount = isCompleted ? 0 : (overallBillAmount - amountPaid)
 
     let summaryRows = 1
@@ -699,11 +759,12 @@ export const shareCombinedGroupWhatsApp = async (
   shopsInGroup: Shop[], 
   lang: 'en' | 'te' = 'en',
   targetShop: Shop,
-  billIds?: string[]
+  billIds?: string[],
+  preloadedBills?: BillBreakdown[]
 ) => {
   const toastId = toast.loading("Preparing combined PDF for WhatsApp sharing...")
   try {
-    const pdfBlob = await generateCombinedGroupPDF(shopsInGroup, 'blob', lang, targetShop, billIds)
+    const pdfBlob = await generateCombinedGroupPDF(shopsInGroup, 'blob', lang, targetShop, billIds, preloadedBills)
     if (!pdfBlob) {
       toast.dismiss(toastId)
       toast.error("Failed to generate PDF")
@@ -712,7 +773,7 @@ export const shareCombinedGroupWhatsApp = async (
 
     const file = new File(
       [pdfBlob],
-      `CombinedGroupBill_${targetShop.name.replace(/\s+/g, '_')}.pdf`,
+      `CombinedGroupBill_${(targetShop?.name || 'Group').replace(/\s+/g, '_')}.pdf`,
       { type: "application/pdf" }
     )
 
@@ -722,18 +783,18 @@ export const shareCombinedGroupWhatsApp = async (
       try {
         await navigator.share({
           title: "Siva Durga Traders Combined Bill",
-          text: `Combined bill for group starting from ${targetShop.name}`,
+          text: `Combined bill for group starting from ${targetShop?.name || 'Group'}`,
           files: [file]
         })
       } catch (shareErr: any) {
         if (shareErr.name !== 'AbortError') {
           console.error("WhatsApp share failed:", shareErr)
           toast.error("Sharing failed. Downloading instead.")
-          await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds)
+          await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds, preloadedBills)
         }
       }
     } else {
-      await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds)
+      await generateCombinedGroupPDF(shopsInGroup, 'download', lang, targetShop, billIds, preloadedBills)
       alert("Your browser doesn't support direct PDF sharing.")
     }
   } catch (error) {

@@ -64,10 +64,18 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
   return reconstructedBills
 }
 
-export const generateSalesCombinedPDF = async (session: GroupedSaleSession, action: 'download' | 'print' | 'blob', lang: 'en' | 'te' = 'en'): Promise<Blob | undefined> => {
+export const generateSalesCombinedPDF = async (
+  session: GroupedSaleSession, 
+  action: 'download' | 'print' | 'blob', 
+  lang: 'en' | 'te' = 'en',
+  preloadedBills?: SalesBillBreakdown[]
+): Promise<Blob | undefined> => {
   const toastId = toast.loading("Generating PDF...")
   try {
-    const bills = await fetchSalesBillBreakdowns(session, lang)
+    let bills = preloadedBills
+    if (!bills) {
+      bills = await fetchSalesBillBreakdowns(session, lang)
+    }
     
     const doc = new jsPDF()
     let y = 15
@@ -101,7 +109,7 @@ export const generateSalesCombinedPDF = async (session: GroupedSaleSession, acti
     y = printHeader(y)
 
     bills.forEach((bill, billIndex) => {
-      let displayItems = bill.items.filter((item: any) => item.quantity > 0 && item.total > 0)
+      let displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0)
       
       const infoHeight = 22
       const tableHeaderHeight = 8
@@ -128,11 +136,11 @@ export const generateSalesCombinedPDF = async (session: GroupedSaleSession, acti
       doc.setFontSize(10.5)
       doc.setTextColor(30, 41, 59)
       
-      doc.text(`Buyer Name: ${session.buyer_name}`, 15, y + 4)
+      doc.text(`Buyer Name: ${session?.buyer_name || 'Unknown'}`, 15, y + 4)
       
       const invNoStr = bill.invoiceNumber ? `#${bill.invoiceNumber}` : '-'
       doc.text(`Invoice No: ${invNoStr}`, 135, y + 4)
-      doc.text(`Date: ${formatDate(bill.date)}`, 135, y + 9)
+      doc.text(`Date: ${formatDate(bill.date || new Date().toISOString())}`, 135, y + 9)
 
       const startTableY = y + 15
 
@@ -250,7 +258,8 @@ export const generateSalesCombinedPDF = async (session: GroupedSaleSession, acti
 
     toast.dismiss(toastId)
     if (action === 'download') {
-      doc.save(`SalesCombinedBill_${session.buyer_name}_${session.date}.pdf`)
+      const filename = `SalesCombinedBill_${(session?.buyer_name || 'Buyer').replace(/\s+/g, '_')}_${session.date || 'date'}.pdf`
+      doc.save(filename)
     } else if (action === 'print') {
       doc.autoPrint()
       window.open(doc.output('bloburl'), '_blank')
@@ -258,15 +267,20 @@ export const generateSalesCombinedPDF = async (session: GroupedSaleSession, acti
       return doc.output('blob')
     }
   } catch (error) {
+    console.error("Failed to generate Sales PDF:", error)
     toast.dismiss(toastId)
     toast.error("Error generating document")
   }
 }
 
-export const shareSalesWhatsApp = async (session: GroupedSaleSession, lang: 'en' | 'te' = 'en') => {
+export const shareSalesWhatsApp = async (
+  session: GroupedSaleSession, 
+  lang: 'en' | 'te' = 'en',
+  preloadedBills?: SalesBillBreakdown[]
+) => {
   const toastId = toast.loading("Preparing PDF for sharing...")
   try {
-    const pdfBlob = await generateSalesCombinedPDF(session, 'blob', lang)
+    const pdfBlob = await generateSalesCombinedPDF(session, 'blob', lang, preloadedBills)
     
     if (!pdfBlob) {
       toast.dismiss(toastId)
@@ -276,7 +290,7 @@ export const shareSalesWhatsApp = async (session: GroupedSaleSession, lang: 'en'
 
     const file = new File(
       [pdfBlob],
-      `SalesCombinedBill_${session.buyer_name}_${session.date}.pdf`,
+      `SalesCombinedBill_${(session?.buyer_name || 'Buyer').replace(/\s+/g, '_')}_${session.date || 'date'}.pdf`,
       { type: "application/pdf" }
     )
 
@@ -286,20 +300,22 @@ export const shareSalesWhatsApp = async (session: GroupedSaleSession, lang: 'en'
       try {
         await navigator.share({
           title: "Siva Durga Traders Bill",
-          text: `Bill for ${session.buyer_name} - Date: ${session.date}`,
+          text: `Bill for ${session?.buyer_name || 'Buyer'} - Date: ${session.date || ''}`,
           files: [file]
         })
       } catch (shareErr: any) {
         if (shareErr.name !== 'AbortError') {
+          console.error("WhatsApp share failed:", shareErr)
           toast.error("Sharing failed. Downloading instead.")
-          await generateSalesCombinedPDF(session, 'download', lang)
+          await generateSalesCombinedPDF(session, 'download', lang, preloadedBills)
         }
       }
     } else {
-      await generateSalesCombinedPDF(session, 'download', lang)
+      await generateSalesCombinedPDF(session, 'download', lang, preloadedBills)
       alert("Your browser doesn't support direct PDF sharing.")
     }
   } catch (error) {
+    console.error("Failed to share Sales PDF via WhatsApp:", error)
     toast.dismiss(toastId)
     toast.error("Error sharing PDF")
   }
