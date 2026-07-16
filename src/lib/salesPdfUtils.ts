@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import jsPDF from "jspdf"
+import "jspdf-autotable"
 import { t } from "./i18n"
 import { formatDate } from "./utils"
 
