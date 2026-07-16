@@ -6,8 +6,7 @@ import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import { formatDate } from "@/lib/utils"
-import jsPDF from "jspdf"
-import "jspdf-autotable"
+import { generateTablePDF } from "@/lib/pdfTemplate"
 import * as XLSX from "xlsx"
 
 const EXPENSE_CATEGORIES = [
@@ -116,13 +115,9 @@ export function Expenses() {
 
   // --- EXPORTS ---
   const exportPDF = () => {
-    const doc = new jsPDF()
-    doc.text("Expenses Report", 14, 15)
-    if (startDate || endDate) {
-      const rangeText = `Range: ${startDate ? formatDate(startDate) : 'Start'} to ${endDate ? formatDate(endDate) : 'End'}`
-      doc.setFontSize(10)
-      doc.text(rangeText, 14, 21)
-    }
+    const metadata = startDate || endDate 
+      ? [`Range: ${startDate ? formatDate(startDate) : 'Start'} to ${endDate ? formatDate(endDate) : 'End'}`]
+      : undefined
 
     const head = [['S.No.', 'Date', 'Category', 'Description', 'Amount (Rs)', 'Remarks']]
     const body = filteredExpenses.map((exp, index) => [
@@ -134,9 +129,14 @@ export function Expenses() {
       exp.remarks || '-'
     ])
 
-    // @ts-ignore
-    doc.autoTable({ head, body, startY: startDate || endDate ? 25 : 20 })
-    doc.save("Expenses.pdf")
+    generateTablePDF({
+      title: "EXPENSES REPORT",
+      subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
+      filename: "Expenses.pdf",
+      metadata,
+      tableHead: head,
+      tableBody: body
+    }, 'download')
   }
 
   const exportExcel = () => {

@@ -222,6 +222,7 @@ export function Shops() {
           <table className="w-full text-sm text-left">
             <thead className="bg-muted text-muted-foreground">
               <tr>
+                <th className="px-4 py-3 w-16">S.No.</th>
                 <th className="px-4 py-3">{t("name", lang)}</th>
                 <th className="px-4 py-3">{t("type", lang)}</th>
                 <th className="px-4 py-3">{t("mobile", lang)}</th>
@@ -232,9 +233,10 @@ export function Shops() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center py-8">{t("loading", lang)}...</td></tr>
-              ) : filteredShops.map(shop => (
+                <tr><td colSpan={8} className="text-center py-8">{t("loading", lang)}...</td></tr>
+              ) : filteredShops.map((shop, index) => (
                 <tr key={shop.id} className="border-b last:border-0 hover:bg-muted/50">
+                  <td className="px-4 py-3 text-muted-foreground font-medium">{index + 1}</td>
                   <td className="px-4 py-3 font-medium">{lang === 'te' && shop.name_te ? shop.name_te : shop.name}</td>
                   <td className="px-4 py-3">{shop.type}</td>
                   <td className="px-4 py-3">{shop.mobile || '-'}</td>
@@ -275,7 +277,7 @@ export function Shops() {
                     <button onClick={() => openEdit(shop)} className="text-blue-600 hover:bg-blue-50 p-2 rounded-md mr-1" title="Edit">
                       <Edit2 className="w-4 h-4" />
                     </button>
-                    <button onClick={() => handleDelete(shop.id)} className="text-red-600 hover:bg-red-50 p-2 rounded-md" title="Delete">
+                    <button onClick={() => handleDelete(shop.id)} className="text-red-600 hover:bg-red-50 p-2 rounded" title="Delete">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </td>

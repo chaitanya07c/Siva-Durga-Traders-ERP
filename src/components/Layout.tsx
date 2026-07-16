@@ -61,9 +61,12 @@ export function Layout() {
         
         {/* Welcome Section */}
         <div className="px-6 py-4 border-b bg-muted/10">
-          <div className="text-sm text-muted-foreground">👋 Welcome,</div>
-          <div className="text-sm font-semibold text-foreground mt-1">Gubbala</div>
-          <div className="text-sm font-semibold text-foreground pl-3">Ravi Kumar</div>
+          <div className="text-sm text-muted-foreground">Welcome,</div>
+          <div className="mt-2" />
+          <div className="flex flex-col items-start text-sm font-semibold text-foreground">
+            <span>Gubbala</span>
+            <span>Ravi Kumar</span>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto py-4">
@@ -124,9 +127,12 @@ export function Layout() {
           
           {/* Welcome Section */}
           <div className="px-6 py-4 border-b bg-muted/10">
-            <div className="text-sm text-muted-foreground">👋 Welcome,</div>
-            <div className="text-sm font-semibold text-foreground mt-1">Gubbala</div>
-            <div className="text-sm font-semibold text-foreground pl-3">Ravi Kumar</div>
+            <div className="text-sm text-muted-foreground">Welcome,</div>
+            <div className="mt-2" />
+            <div className="flex flex-col items-start text-sm font-semibold text-foreground">
+              <span>Gubbala</span>
+              <span>Ravi Kumar</span>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto py-4">
@@ -193,9 +199,12 @@ export function Layout() {
             </button>
           </div>
           <div className="hidden sm:flex flex-col items-start text-xs shrink-0 md:hidden">
-            <span className="text-muted-foreground">👋 Welcome,</span>
-            <span className="font-semibold text-foreground">Gubbala</span>
-            <span className="font-semibold text-foreground pl-3">Ravi Kumar</span>
+            <span className="text-muted-foreground">Welcome,</span>
+            <span className="mt-1" />
+            <div className="flex flex-col items-start font-semibold text-foreground">
+              <span>Gubbala</span>
+              <span>Ravi Kumar</span>
+            </div>
           </div>
         </header>
 

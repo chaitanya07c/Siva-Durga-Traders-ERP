@@ -23,6 +23,7 @@ export function SalesPayments() {
   const [paymentModal, setPaymentModal] = useState<GroupedSaleSession | null>(null)
   const [partialPayment, setPartialPayment] = useState<number>(0)
   const [exportPromptSession, setExportPromptSession] = useState<GroupedSaleSession | null>(null)
+  const [salesGroupExportPrompt, setSalesGroupExportPrompt] = useState<{ session: GroupedSaleSession, label: string } | null>(null)
   
   // Edit Invoice states
   const [editingInvoice, setEditingInvoice] = useState<SalesBillBreakdown | null>(null)
@@ -345,6 +346,44 @@ export function SalesPayments() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center justify-end gap-2">
+                        {session.status === 'Pending' && session.billsCount >= 2 && (
+                          <button 
+                            onClick={() => {
+                              setSalesGroupExportPrompt({
+                                session,
+                                label: lang === 'te' ? "కంబైన్డ్ ఇన్వాయిస్" : "Combined Invoice"
+                              })
+                            }}
+                            className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-3 py-1.5 rounded flex items-center text-xs font-semibold shadow-sm transition-colors"
+                          >
+                            {lang === 'te' ? "కంబైన్డ్ బిల్లు" : "Combined Bill"}
+                          </button>
+                        )}
+
+                        <button 
+                          onClick={() => generateSalesCombinedPDF(session, 'download', lang)}
+                          className="text-slate-600 hover:bg-slate-100 p-1.5 rounded"
+                          title="Download PDF"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+
+                        <button 
+                          onClick={() => generateSalesCombinedPDF(session, 'print', lang)}
+                          className="text-slate-600 hover:bg-slate-100 p-1.5 rounded"
+                          title="Print"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+
+                        <button 
+                          onClick={() => shareSalesWhatsApp(session, lang)}
+                          className="text-green-600 hover:bg-green-50 p-1.5 rounded"
+                          title="Share via WhatsApp"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+
                         <button 
                           onClick={() => handleViewDetails(session)} 
                           className="text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded flex items-center text-xs font-medium"
@@ -690,6 +729,50 @@ export function SalesPayments() {
                 className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-sm"
               >
                 Save Updates
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sales Combined Export Prompt Modal */}
+      {salesGroupExportPrompt && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-background w-full max-w-sm rounded-2xl shadow-xl overflow-hidden flex flex-col items-center p-8 text-center">
+            <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mb-4">
+              <Printer className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">{salesGroupExportPrompt.label}</h2>
+            <p className="text-muted-foreground text-sm mb-8">
+              {lang === 'te' 
+                ? "కంబైన్డ్ పిడిఎఫ్ ని డౌన్‌లోడ్ చేయండి, ప్రింట్ చేయండి లేదా షేర్ చేయండి." 
+                : "Download, print, or share the combined PDF for this customer."}
+            </p>
+            
+            <div className="w-full flex flex-col gap-3">
+              <button 
+                onClick={() => generateSalesCombinedPDF(salesGroupExportPrompt.session, 'download', lang)} 
+                className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors"
+              >
+                <Download className="w-5 h-5 mr-2" /> {lang === 'te' ? "డౌన్‌లోడ్ PDF" : "Download PDF"}
+              </button>
+              <button 
+                onClick={() => generateSalesCombinedPDF(salesGroupExportPrompt.session, 'print', lang)} 
+                className="w-full flex items-center justify-center py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition-colors"
+              >
+                <Printer className="w-5 h-5 mr-2" /> {lang === 'te' ? "ప్రింట్ బిల్" : "Print Bill"}
+              </button>
+              <button 
+                onClick={() => shareSalesWhatsApp(salesGroupExportPrompt.session, lang)} 
+                className="w-full flex items-center justify-center py-3 bg-green-50 text-green-700 hover:bg-green-100 rounded-xl font-medium transition-colors"
+              >
+                <Share2 className="w-5 h-5 mr-2" /> {lang === 'te' ? "వాట్సాప్ ద్వారా షేర్ చేయండి" : "Share via WhatsApp"}
+              </button>
+              <button 
+                onClick={() => setSalesGroupExportPrompt(null)} 
+                className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium mt-2"
+              >
+                {lang === 'te' ? "మూసివేయండి" : "Close"}
               </button>
             </div>
           </div>

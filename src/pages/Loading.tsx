@@ -5,8 +5,7 @@ import { CheckCircle, XCircle, FileText, Store, Search, Printer, Download, Eye, 
 import { toast } from "sonner"
 import { useNavigate, useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import jsPDF from "jspdf"
-import "jspdf-autotable"
+import { generateTablePDF } from "@/lib/pdfTemplate"
 import { formatDate } from "@/lib/utils"
 
 export function Loading() {
@@ -124,9 +123,6 @@ export function Loading() {
   })
 
   const exportPDF = () => {
-    const doc = new jsPDF()
-    doc.text("Completed Loading Report", 14, 15)
-    
     const head = [['S.No.', 'Date', 'Shop Name', 'Type', 'Bill No', 'Amount', 'Status']]
     const body = filteredLoadings.map((l, index) => [
       index + 1,
@@ -138,9 +134,13 @@ export function Loading() {
       'Completed'
     ])
 
-    // @ts-ignore
-    doc.autoTable({ head, body, startY: 25 })
-    doc.save("Completed_Loading.pdf")
+    generateTablePDF({
+      title: "LOADING REPORT",
+      subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
+      filename: "Completed_Loading.pdf",
+      tableHead: head,
+      tableBody: body
+    }, 'download')
   }
 
   const renderCategory = (title: string, type: string) => {

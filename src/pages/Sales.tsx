@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Sale, Buyer, Material } from "@/types/database"
-import { Save, Banknote, List, ChevronDown, Plus, Edit2, Trash2, Search, X } from "lucide-react"
+import { Save, Banknote, List, ChevronDown, Plus, Edit2, Trash2, Search, X, Printer, Download, Share2, CheckCircle2 } from "lucide-react"
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
+import { generateSalesCombinedPDF, shareSalesWhatsApp } from "@/lib/salesPdfUtils"
+import type { GroupedSaleSession } from "@/lib/salesPdfUtils"
 
 type SalesItem = { name: string, quantity: number, rate: number, total: number }
 
@@ -188,6 +190,44 @@ export function Sales() {
     setSavedSaleId(null)
   }
 
+  const handlePdfAction = async (action: 'download' | 'print') => {
+    if (!savedSaleId) return
+    const { data: sale } = await supabase.from('sales').select('*').eq('id', savedSaleId).single()
+    if (sale) {
+      const session: GroupedSaleSession = {
+        id: sale.id,
+        buyer_name: sale.buyer_name,
+        date: sale.date,
+        billsCount: 1,
+        overallTotal: sale.total_amount,
+        status: sale.payment_status,
+        bill_ids: [sale.id],
+        partial_payment: sale.partial_payment || 0,
+        payment_date: sale.payment_date
+      }
+      await generateSalesCombinedPDF(session, action, lang)
+    }
+  }
+
+  const handleWhatsAppAction = async () => {
+    if (!savedSaleId) return
+    const { data: sale } = await supabase.from('sales').select('*').eq('id', savedSaleId).single()
+    if (sale) {
+      const session: GroupedSaleSession = {
+        id: sale.id,
+        buyer_name: sale.buyer_name,
+        date: sale.date,
+        billsCount: 1,
+        overallTotal: sale.total_amount,
+        status: sale.payment_status,
+        bill_ids: [sale.id],
+        partial_payment: sale.partial_payment || 0,
+        payment_date: sale.payment_date
+      }
+      await shareSalesWhatsApp(session, lang)
+    }
+  }
+
 
 
   // Group items by category for the modal
@@ -347,9 +387,29 @@ export function Sales() {
                 <Save className="w-5 h-5 mr-2" /> {loading ? "Saving..." : "Save Invoice"}
               </button>
             ) : (
-                <button onClick={resetFormForAnotherBill} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center hover:bg-blue-700">
-                  <Save className="w-4 h-4 mr-2" /> Another Bill
+              <div className="space-y-2">
+                <div className="bg-green-50 text-green-700 p-3 rounded-lg flex items-center mb-3">
+                  <CheckCircle2 className="w-5 h-5 mr-2 shrink-0" />
+                  <span className="text-xs font-medium">Invoice saved successfully!</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => handlePdfAction('download')} className="bg-slate-100 text-slate-700 py-2 rounded-md text-xs font-semibold flex justify-center items-center hover:bg-slate-200">
+                    <Download className="w-3.5 h-3.5 mr-1" /> PDF
+                  </button>
+                  <button onClick={() => handlePdfAction('print')} className="bg-slate-100 text-slate-700 py-2 rounded-md text-xs font-semibold flex justify-center items-center hover:bg-slate-200">
+                    <Printer className="w-3.5 h-3.5 mr-1" /> Print
+                  </button>
+                </div>
+                <button onClick={handleWhatsAppAction} className="w-full bg-green-50 text-green-700 py-2 rounded-md text-xs font-semibold flex justify-center items-center hover:bg-green-100">
+                  <Share2 className="w-3.5 h-3.5 mr-1" /> Share via WhatsApp
                 </button>
+                
+                <div className="border-t pt-3 mt-3">
+                  <button onClick={resetFormForAnotherBill} className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center hover:bg-blue-700 mb-2">
+                    <Save className="w-4 h-4 mr-2" /> Another Bill
+                  </button>
+                </div>
+              </div>
             )}
           </div>
           

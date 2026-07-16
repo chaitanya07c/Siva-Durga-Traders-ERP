@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { Download, Printer, FileSpreadsheet } from "lucide-react"
-import jsPDF from "jspdf"
-import "jspdf-autotable"
+import { generateTablePDF } from "@/lib/pdfTemplate"
 import * as XLSX from "xlsx"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
@@ -181,17 +180,7 @@ export function Reports() {
     }
     setLoading(false)
   }
-
   const exportPDF = () => {
-    const doc = new jsPDF()
-    doc.text(`Siva Durga Traders - ${reportType}`, 14, 15)
-    
-    const rangeText = (reportType === "Stock Report" || reportType === "Daily Purchase" || reportType === "Daily Sales" || reportType === "Attendance")
-      ? `Date: ${formatDate(date)}`
-      : `Date Range: ${formatDate(date)} to ${formatDate(endDate)}`
-    doc.setFontSize(10)
-    doc.text(rangeText, 14, 23)
-
     let head: string[][] = []
     let body: any[][] = []
 
@@ -251,9 +240,21 @@ export function Reports() {
       ])
     }
 
-    // @ts-ignore
-    doc.autoTable({ head, body, startY: 28 })
-    doc.save(`${reportType.replace(" ", "_")}_${date}.pdf`)
+    const metadata = [
+      `Report Type: ${reportType}`,
+      (reportType === "Stock Report" || reportType === "Daily Purchase" || reportType === "Daily Sales" || reportType === "Attendance")
+        ? `Date: ${formatDate(date)}`
+        : `Date Range: ${formatDate(date)} to ${formatDate(endDate)}`
+    ]
+
+    generateTablePDF({
+      title: "REPORT",
+      subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
+      filename: `${reportType.replace(" ", "_")}_${date}.pdf`,
+      metadata,
+      tableHead: head,
+      tableBody: body
+    }, 'download')
   }
 
   const exportExcel = () => {

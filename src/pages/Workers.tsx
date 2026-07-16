@@ -6,8 +6,7 @@ import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import { formatDate } from "@/lib/utils"
-import jsPDF from "jspdf"
-import "jspdf-autotable"
+import { generateTablePDF } from "@/lib/pdfTemplate"
 import * as XLSX from "xlsx"
 
 export function Workers() {
@@ -118,10 +117,7 @@ export function Workers() {
 
   // --- EXPORTS FOR CALENDAR ---
   const exportCalendarPDF = () => {
-    const doc = new jsPDF({ orientation: 'landscape' })
     const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })
-    doc.text(`Siva Durga Traders - Attendance Calendar - ${monthName}`, 14, 15)
-    
     const dayCols = Array.from({ length: daysInMonth }, (_, i) => String(i + 1))
     const head = [['S.No.', 'Employee Name', ...dayCols, 'P', 'A', 'H']]
     
@@ -144,9 +140,15 @@ export function Workers() {
       return rowData
     })
 
-    // @ts-ignore
-    doc.autoTable({ head, body, startY: 22, styles: { fontSize: 7, cellPadding: 1 } })
-    doc.save(`Attendance_${monthName.replace(" ", "_")}.pdf`)
+    generateTablePDF({
+      title: "ATTENDANCE CALENDAR",
+      subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
+      filename: `Attendance_${monthName.replace(" ", "_")}.pdf`,
+      metadata: [`Month: ${monthName}`],
+      orientation: 'landscape',
+      tableHead: head,
+      tableBody: body
+    }, 'download')
   }
 
   const exportCalendarExcel = () => {
@@ -180,13 +182,10 @@ export function Workers() {
 
   // --- EXPORTS FOR SALARY SHEET ---
   const exportSalaryPDF = () => {
-    const doc = new jsPDF()
     const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })
-    doc.text(`Siva Durga Traders - Salary Sheet - ${monthName}`, 14, 15)
-    
     const head = [['S.No.', 'Employee Name', 'Daily Salary', 'Present', 'Half Day', 'Absent', 'Salary Payable']]
     
-    const body = employees.map((emp, index) => {
+    const body: any[][] = employees.map((emp, index) => {
       const stats = getStats(emp.id)
       const salaryPayable = (stats.present + stats.half * 0.5) * Number(emp.daily_wage || 0)
       const empName = lang === 'te' && emp.name_te ? emp.name_te : emp.name
@@ -201,9 +200,30 @@ export function Workers() {
       ]
     })
 
-    // @ts-ignore
-    doc.autoTable({ head, body, startY: 22 })
-    doc.save(`Salary_Sheet_${monthName.replace(" ", "_")}.pdf`)
+    const totalSalaryPayable = employees.reduce((sum, emp) => {
+      const stats = getStats(emp.id)
+      const salaryPayable = (stats.present + stats.half * 0.5) * Number(emp.daily_wage || 0)
+      return sum + salaryPayable
+    }, 0)
+
+    body.push([
+      "TOTAL",
+      "",
+      "",
+      "",
+      "",
+      "",
+      `Rs ${totalSalaryPayable.toLocaleString('en-IN')}`
+    ])
+
+    generateTablePDF({
+      title: "SALARY SHEET",
+      subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
+      filename: `Salary_Sheet_${monthName.replace(" ", "_")}.pdf`,
+      metadata: [`Month: ${monthName}`],
+      tableHead: head,
+      tableBody: body
+    }, 'download')
   }
 
   const exportSalaryExcel = () => {
@@ -222,6 +242,22 @@ export function Workers() {
         "Salary Payable (Rs)": salaryPayable
       }
     })
+
+    const totalSalaryPayable = employees.reduce((sum, emp) => {
+      const stats = getStats(emp.id)
+      const salaryPayable = (stats.present + stats.half * 0.5) * Number(emp.daily_wage || 0)
+      return sum + salaryPayable
+    }, 0)
+
+    sheetData.push({
+      "S.No.": "TOTAL",
+      "Employee Name": "",
+      "Daily Salary (Rs)": "",
+      "Present Days": "",
+      "Half Days": "",
+      "Absent Days": "",
+      "Salary Payable (Rs)": totalSalaryPayable
+    } as any)
 
     const ws = XLSX.utils.json_to_sheet(sheetData)
     const wb = XLSX.utils.book_new()
@@ -502,6 +538,15 @@ export function Workers() {
                       </tr>
                     )
                   })}
+                  <tr className="bg-muted/50 font-bold border-t-2 border-slate-300">
+                    <td className="px-4 py-3" colSpan={6}>{lang === 'te' ? "మొత్తం" : "TOTAL"}</td>
+                    <td className="px-4 py-3 text-right text-green-700 text-base font-extrabold">
+                      ₹{employees.reduce((sum, emp) => {
+                        const stats = getStats(emp.id)
+                        return sum + (stats.present + stats.half * 0.5) * Number(emp.daily_wage || 0)
+                      }, 0).toLocaleString('en-IN')}
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>

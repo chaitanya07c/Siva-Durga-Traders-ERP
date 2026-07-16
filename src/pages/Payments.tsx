@@ -118,10 +118,16 @@ export function Payments() {
     const shop = shops.find(s => s.id === session.shop_id)
     if (!shop) return false
     
-    if (!belongsToPredefinedGroup(shop.name) && shop.type !== 'Akividu Wine') {
-      return false
+    // Check 1: Same shop has 2 or more pending bills across all pending sessions
+    const sameShopPendingBillsCount = groupedSessions
+      .filter(s => s.shop_id === session.shop_id && s.status === 'Pending')
+      .reduce((sum, s) => sum + s.billsCount, 0)
+      
+    if (sameShopPendingBillsCount >= 2) {
+      return true
     }
     
+    // Check 2: Owner group (predefined or Akividu) has 2 or more pending shops
     let groupShops: Shop[] = []
     if (belongsToPredefinedGroup(shop.name)) {
       groupShops = getPredefinedGroupShops(shops, shop)
@@ -129,10 +135,15 @@ export function Payments() {
       groupShops = shops.filter(s => s.type === 'Akividu Wine')
     }
     
-    const groupShopIds = new Set(groupShops.map(s => s.id))
-    const pendingGroupShopsCount = groupedSessions.filter(s => groupShopIds.has(s.shop_id) && s.status === 'Pending').length
+    if (groupShops.length > 0) {
+      const groupShopIds = new Set(groupShops.map(s => s.id))
+      const pendingGroupShopsCount = groupedSessions.filter(s => groupShopIds.has(s.shop_id) && s.status === 'Pending').length
+      if (pendingGroupShopsCount >= 2) {
+        return true
+      }
+    }
     
-    return pendingGroupShopsCount >= 2
+    return false
   }
 
   const handleToggleMarkCombinedBill = async (session: GroupedSession) => {
@@ -181,6 +192,8 @@ export function Payments() {
         groupShops = getPredefinedGroupShops(shops, shop)
       } else if (shop.type === 'Akividu Wine') {
         groupShops = shops.filter(s => s.type === 'Akividu Wine')
+      } else {
+        groupShops = [shop]
       }
       
       const shopIds = groupShops.map(s => s.id)
@@ -200,7 +213,7 @@ export function Payments() {
           shop_name: `${shop.name} (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})`,
           overallTotal,
           bill_ids: groupBillIds,
-          isCombinedGroup: true,
+          isCombinedGroup: groupShops.length > 1,
           shopsInGroup: groupShops
         } as any)
         setPartialPayment(totalPartialPayment)
@@ -278,6 +291,8 @@ export function Payments() {
           groupShops = getPredefinedGroupShops(shops, shop)
         } else if (shop.type === 'Akividu Wine') {
           groupShops = shops.filter(s => s.type === 'Akividu Wine')
+        } else {
+          groupShops = [shop]
         }
         
         const shopIds = groupShops.map(s => s.id)
@@ -329,7 +344,7 @@ export function Payments() {
               shop_name: `${shop.name} (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})`,
               overallTotal,
               bill_ids: billIds,
-              isCombinedGroup: true,
+              isCombinedGroup: groupShops.length > 1,
               shopsInGroup: groupShops
             } as any,
             bills
@@ -599,10 +614,82 @@ export function Payments() {
                             }`}
                           >
                             {isMarkedForCombined(session.shop_id) 
-                              ? (lang === 'te' ? "✓ కంబైన్డ్ బిల్లు ఎంపికైంది" : "✓ Combined Bill Selected")
-                              : (lang === 'te' ? "కంబైన్డ్ బిల్లు గుర్తింపు" : "Mark for Combined Bill")}
+                              ? (lang === 'te' ? "✓ కంబైన్డ్" : "✓ Combined")
+                              : (lang === 'te' ? "కంబైన్డ్" : "Combined")}
                           </button>
                         )}
+
+                        <button 
+                          onClick={async () => {
+                            const targetShop = shops.find(sh => sh.id === session.shop_id)
+                            if (isMarkedForCombined(session.shop_id) && shouldShowCombinedToggle(session)) {
+                              let groupShops: Shop[] = []
+                              const nameStr = targetShop?.name || ''
+                              if (belongsToPredefinedGroup(nameStr)) {
+                                groupShops = getPredefinedGroupShops(shops, targetShop!)
+                              } else if (targetShop?.type === 'Akividu Wine') {
+                                groupShops = shops.filter(s => s.type === 'Akividu Wine')
+                              } else {
+                                groupShops = targetShop ? [targetShop] : []
+                              }
+                              generateCombinedGroupPDF(groupShops, 'download', lang, targetShop || groupShops[0], session.bill_ids)
+                            } else {
+                              generateCombinedPDF(session, 'download', lang, undefined, targetShop)
+                            }
+                          }}
+                          className="text-slate-600 hover:bg-slate-100 p-1.5 rounded"
+                          title="Download PDF"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+
+                        <button 
+                          onClick={async () => {
+                            const targetShop = shops.find(sh => sh.id === session.shop_id)
+                            if (isMarkedForCombined(session.shop_id) && shouldShowCombinedToggle(session)) {
+                              let groupShops: Shop[] = []
+                              const nameStr = targetShop?.name || ''
+                              if (belongsToPredefinedGroup(nameStr)) {
+                                groupShops = getPredefinedGroupShops(shops, targetShop!)
+                              } else if (targetShop?.type === 'Akividu Wine') {
+                                groupShops = shops.filter(s => s.type === 'Akividu Wine')
+                              } else {
+                                groupShops = targetShop ? [targetShop] : []
+                              }
+                              generateCombinedGroupPDF(groupShops, 'print', lang, targetShop || groupShops[0], session.bill_ids)
+                            } else {
+                              generateCombinedPDF(session, 'print', lang, undefined, targetShop)
+                            }
+                          }}
+                          className="text-slate-600 hover:bg-slate-100 p-1.5 rounded"
+                          title="Print"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+
+                        <button 
+                          onClick={async () => {
+                            const targetShop = shops.find(sh => sh.id === session.shop_id)
+                            if (isMarkedForCombined(session.shop_id) && shouldShowCombinedToggle(session)) {
+                              let groupShops: Shop[] = []
+                              const nameStr = targetShop?.name || ''
+                              if (belongsToPredefinedGroup(nameStr)) {
+                                groupShops = getPredefinedGroupShops(shops, targetShop!)
+                              } else if (targetShop?.type === 'Akividu Wine') {
+                                groupShops = shops.filter(s => s.type === 'Akividu Wine')
+                              } else {
+                                groupShops = targetShop ? [targetShop] : []
+                              }
+                              shareCombinedGroupWhatsApp(groupShops, lang, targetShop || groupShops[0], session.bill_ids)
+                            } else {
+                              shareWhatsApp(session, lang, undefined, targetShop)
+                            }
+                          }}
+                          className="text-green-600 hover:bg-green-50 p-1.5 rounded"
+                          title="Share via WhatsApp"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
 
                         <button 
                           onClick={() => handleViewDetails(session)} 
