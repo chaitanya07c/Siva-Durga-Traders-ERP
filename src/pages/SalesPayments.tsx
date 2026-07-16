@@ -360,29 +360,7 @@ export function SalesPayments() {
                           </button>
                         )}
 
-                        <button 
-                          onClick={() => generateSalesCombinedPDF(session, 'download', lang)}
-                          className="text-slate-600 hover:bg-slate-100 p-1.5 rounded"
-                          title="Download PDF"
-                        >
-                          <Download className="w-4 h-4" />
-                        </button>
 
-                        <button 
-                          onClick={() => generateSalesCombinedPDF(session, 'print', lang)}
-                          className="text-slate-600 hover:bg-slate-100 p-1.5 rounded"
-                          title="Print"
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-
-                        <button 
-                          onClick={() => shareSalesWhatsApp(session, lang)}
-                          className="text-green-600 hover:bg-green-50 p-1.5 rounded"
-                          title="Share via WhatsApp"
-                        >
-                          <Share2 className="w-4 h-4" />
-                        </button>
 
                         <button 
                           onClick={() => handleViewDetails(session)} 

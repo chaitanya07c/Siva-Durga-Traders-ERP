@@ -619,77 +619,7 @@ export function Payments() {
                           </button>
                         )}
 
-                        <button 
-                          onClick={async () => {
-                            const targetShop = shops.find(sh => sh.id === session.shop_id)
-                            if (isMarkedForCombined(session.shop_id) && shouldShowCombinedToggle(session)) {
-                              let groupShops: Shop[] = []
-                              const nameStr = targetShop?.name || ''
-                              if (belongsToPredefinedGroup(nameStr)) {
-                                groupShops = getPredefinedGroupShops(shops, targetShop!)
-                              } else if (targetShop?.type === 'Akividu Wine') {
-                                groupShops = shops.filter(s => s.type === 'Akividu Wine')
-                              } else {
-                                groupShops = targetShop ? [targetShop] : []
-                              }
-                              generateCombinedGroupPDF(groupShops, 'download', lang, targetShop || groupShops[0], undefined)
-                            } else {
-                              generateCombinedPDF(session, 'download', lang, undefined, targetShop)
-                            }
-                          }}
-                          className="text-slate-600 hover:bg-slate-100 p-1.5 rounded"
-                          title="Download PDF"
-                        >
-                          <Download className="w-4 h-4" />
-                        </button>
 
-                        <button 
-                          onClick={async () => {
-                            const targetShop = shops.find(sh => sh.id === session.shop_id)
-                            if (isMarkedForCombined(session.shop_id) && shouldShowCombinedToggle(session)) {
-                              let groupShops: Shop[] = []
-                              const nameStr = targetShop?.name || ''
-                              if (belongsToPredefinedGroup(nameStr)) {
-                                groupShops = getPredefinedGroupShops(shops, targetShop!)
-                              } else if (targetShop?.type === 'Akividu Wine') {
-                                groupShops = shops.filter(s => s.type === 'Akividu Wine')
-                              } else {
-                                groupShops = targetShop ? [targetShop] : []
-                              }
-                              generateCombinedGroupPDF(groupShops, 'print', lang, targetShop || groupShops[0], undefined)
-                            } else {
-                              generateCombinedPDF(session, 'print', lang, undefined, targetShop)
-                            }
-                          }}
-                          className="text-slate-600 hover:bg-slate-100 p-1.5 rounded"
-                          title="Print"
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-
-                        <button 
-                          onClick={async () => {
-                            const targetShop = shops.find(sh => sh.id === session.shop_id)
-                            if (isMarkedForCombined(session.shop_id) && shouldShowCombinedToggle(session)) {
-                              let groupShops: Shop[] = []
-                              const nameStr = targetShop?.name || ''
-                              if (belongsToPredefinedGroup(nameStr)) {
-                                groupShops = getPredefinedGroupShops(shops, targetShop!)
-                              } else if (targetShop?.type === 'Akividu Wine') {
-                                groupShops = shops.filter(s => s.type === 'Akividu Wine')
-                              } else {
-                                groupShops = targetShop ? [targetShop] : []
-                              }
-                              shareCombinedGroupWhatsApp(groupShops, lang, targetShop || groupShops[0], undefined)
-                            } else {
-                              shareWhatsApp(session, lang, undefined, targetShop)
-                            }
-                          }}
-                          className="text-green-600 hover:bg-green-50 p-1.5 rounded"
-                          title="Share via WhatsApp"
-                        >
-                          <Share2 className="w-4 h-4" />
-                        </button>
 
                         <button 
                           onClick={() => handleViewDetails(session)} 
