@@ -70,174 +70,183 @@ export const generateSalesCombinedPDF = async (session: GroupedSaleSession, acti
     const bills = await fetchSalesBillBreakdowns(session, lang)
     
     const doc = new jsPDF()
-    let y = 10
-    
-    bills.forEach((bill) => {
-      let displayItems = bill.items.filter((item: any) => item.quantity > 0 && item.total > 0)
+    let y = 15
 
-      const rowHeight = 6.5
-      const headerHeight = 43
-      const tableHeaderHeight = 7
-      const rowsHeight = displayItems.length * rowHeight
-      const grandTotalHeight = 8
-      const paymentHeight = 17
-      const billHeight = headerHeight + tableHeaderHeight + rowsHeight + grandTotalHeight + paymentHeight
-
-      if (y + billHeight > 285) { 
-        doc.addPage()
-        y = 10 
-      }
-
-      doc.setDrawColor(0)
-      doc.setLineWidth(0.4)
-      doc.rect(10, y, 190, billHeight)
-
+    const printHeader = (startY: number) => {
       doc.setFont("helvetica", "bold")
       doc.setFontSize(22)
-      doc.setTextColor(30, 60, 90)
-      doc.text("SIVA DURGA TRADERS", 105, y + 8, { align: "center" })
+      doc.setTextColor(30, 41, 59) // slate-800
+      doc.text("SIVA DURGA TRADERS", 15, startY + 8)
       
-      doc.setFontSize(10)
-      doc.setTextColor(0)
+      doc.setFontSize(9)
+      doc.setTextColor(100, 116, 139) // slate-500
       const subHeader = lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201]."
-      doc.text(subHeader, 105, y + 13, { align: "center" })
-      
-      doc.line(10, y + 15, 200, y + 15)
-      
-      doc.setFontSize(12)
-      doc.text("G.Ravi Kumar(Chinni)", 12, y + 20)
-      doc.text("Ph.No:9949835054", 140, y + 20)
-      
-      doc.line(10, y + 22, 200, y + 22)
-      
-      doc.text(`${t('date', lang).toUpperCase()}:  ${formatDate(bill.date)}`, 140, y + 27)
-      
-      doc.line(10, y + 29, 200, y + 29)
-      
-      doc.text(`${t('addBuyer', lang).replace("New ", "").toUpperCase()}:  ${session.buyer_name}`, 12, y + 34)
-      doc.text(`INV.NO:`, 140, y + 34)
-      doc.setFontSize(14)
-      doc.setTextColor(180, 0, 0)
-      doc.text(`${bill.invoiceNumber || ''}`, 160, y + 34)
-      doc.setTextColor(0)
-      doc.setFontSize(12)
-      
-      doc.line(10, y + 36, 200, y + 36)
-      
-      doc.text(`Invoice Amount: Rs ${formatInr(bill.grandTotal)}`, 12, y + 41)
-      
-      doc.setFillColor(180, 200, 230)
-      doc.rect(10, y + 43, 190, tableHeaderHeight, "FD")
-      
+      doc.text(subHeader, 15, startY + 13)
+
       doc.setFontSize(10)
-      doc.text("NO", 12, y + 48)
-      doc.text(t('category', lang).toUpperCase(), 25, y + 48)
-      doc.text(t('quantity', lang).toUpperCase(), 100, y + 48, { align: "center" })
-      doc.text(t('rate', lang).toUpperCase(), 140, y + 48, { align: "center" })
-      doc.text(t('amount', lang).toUpperCase(), 180, y + 48, { align: "center" })
-      
-      let tableY = y + 50
-      
-      doc.setFont("helvetica", "normal")
-      doc.setFontSize(11)
-      
-      displayItems.forEach((item: any, i: number) => {
-        doc.text(`${i + 1}.`, 12, tableY + 4.5)
-        doc.text(`${item.name}`, 25, tableY + 4.5)
-        doc.text(`${formatQuantity(item.name, item.quantity)}`, 100, tableY + 4.5, { align: "center" })
-        doc.text(`${formatInr(item.rate)}`, 140, tableY + 4.5, { align: "center" })
-        doc.text(`${formatInr(item.total)}`, 180, tableY + 4.5, { align: "center" })
-        
-        doc.line(10, tableY + rowHeight, 200, tableY + rowHeight)
-        tableY += rowHeight
-      })
-      
-      doc.line(22, y + 43, 22, tableY)
-      doc.line(80, y + 43, 80, tableY)
-      doc.line(120, y + 43, 120, tableY)
-      doc.line(160, y + 43, 160, tableY)
-      
-      doc.setFillColor(180, 200, 230)
-      doc.rect(10, tableY, 190, grandTotalHeight, "FD")
-      doc.setFontSize(12)
+      doc.setTextColor(71, 85, 105) // slate-600
+      doc.text("G.Ravi Kumar(Chinni)  |  Ph.No: 9949835054", 15, startY + 18)
+
       doc.setFont("helvetica", "bold")
-      doc.text(`${t('grandTotal', lang).toUpperCase()}:`, 155, tableY + 5.5, { align: "right" })
-      doc.text(`${formatInr(bill.grandTotal)}`, 180, tableY + 5.5, { align: "center" })
+      doc.setFontSize(16)
+      doc.setTextColor(30, 58, 138) // deep blue
+      doc.text(lang === 'te' ? "అమ్మకపు ఇన్వాయిస్" : "SALES INVOICE", 195, startY + 8, { align: "right" })
+
+      doc.setDrawColor(226, 232, 240) // slate-200
+      doc.setLineWidth(0.8)
+      doc.line(15, startY + 22, 195, startY + 22)
+      return startY + 26
+    }
+
+    y = printHeader(y)
+
+    bills.forEach((bill, billIndex) => {
+      let displayItems = bill.items.filter((item: any) => item.quantity > 0 && item.total > 0)
       
-      tableY += grandTotalHeight
-      
-      doc.setFillColor(180, 200, 230)
-      doc.rect(10, tableY, 190, 7, "FD")
-      doc.setFontSize(10)
-      doc.setFont("helvetica", "bold")
-      doc.text(t('paymentInfo', lang).toUpperCase(), 105, tableY + 5, { align: "center" })
-      
-      tableY += 7
-      
-      const paymentDate = formatDate(session.payment_date || new Date().toISOString().split('T')[0])
-        
-      let paymentStatus = t('pending', lang)
-      if (session.status === 'Completed') {
-        paymentStatus = t('completed', lang)
-      } else if (session.partial_payment > 0) {
-        paymentStatus = t('partialPaid', lang)
+      const infoHeight = 22
+      const tableHeaderHeight = 8
+      const rowHeight = 7.5
+      const tableHeight = tableHeaderHeight + (displayItems.length * rowHeight)
+      const footerHeight = 12
+      const estimatedHeight = infoHeight + tableHeight + footerHeight
+
+      if (y + estimatedHeight > 280) {
+        doc.addPage()
+        y = 15
+        y = printHeader(y)
       }
 
-      doc.setFont("helvetica", "normal")
-      doc.text(`${t('date', lang)} (Payment)    :    ${paymentDate}`, 15, tableY + 6.5)
-      doc.text(`${t('status', lang)}    :    ${paymentStatus}`, 130, tableY + 6.5)
+      if (billIndex > 0 && y > 45) {
+        doc.setDrawColor(226, 232, 240)
+        doc.setLineWidth(0.5)
+        doc.line(15, y, 195, y)
+        y += 8
+      }
+
+      // Bill / Invoice Details Row
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(10.5)
+      doc.setTextColor(30, 41, 59)
       
-      y += billHeight + 10
+      doc.text(`Buyer Name: ${session.buyer_name}`, 15, y + 4)
+      
+      const invNoStr = bill.invoiceNumber ? `#${bill.invoiceNumber}` : '-'
+      doc.text(`Invoice No: ${invNoStr}`, 135, y + 4)
+      doc.text(`Date: ${formatDate(bill.date)}`, 135, y + 9)
+
+      const startTableY = y + 15
+
+      // @ts-ignore
+      doc.autoTable({
+        startY: startTableY,
+        margin: { left: 15, right: 15 },
+        head: [['No', t('category', lang).toUpperCase(), t('quantity', lang).toUpperCase(), t('rate', lang).toUpperCase(), t('amount', lang).toUpperCase()]],
+        body: displayItems.map((item: any, idx: number) => [
+          idx + 1,
+          item.name,
+          formatQuantity(item.name, item.quantity),
+          `Rs ${formatInr(item.rate)}`,
+          `Rs ${formatInr(item.total)}`
+        ]),
+        theme: 'striped',
+        styles: {
+          fontSize: 9,
+          cellPadding: { top: 2.2, bottom: 2.2, left: 3, right: 3 },
+          textColor: [51, 65, 85],
+          lineColor: [241, 245, 249],
+          lineWidth: 0.1
+        },
+        headStyles: {
+          fillColor: [71, 85, 105], // Slate-600
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 12 },
+          1: { halign: 'left' },
+          2: { halign: 'center', cellWidth: 25 },
+          3: { halign: 'right', cellWidth: 28 },
+          4: { halign: 'right', cellWidth: 32 }
+        }
+      })
+
+      // @ts-ignore
+      y = doc.lastAutoTable.finalY + 5
+
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(10.5)
+      doc.setTextColor(15, 23, 42)
+      doc.text(`${t('grandTotal', lang).toUpperCase()}:`, 155, y, { align: "right" })
+      doc.text(`Rs ${formatInr(bill.grandTotal)}`, 195, y, { align: "right" })
+
+      y += 8
     })
 
-    const partialPayment = session.partial_payment || 0
-    const balance = session.overallTotal - partialPayment
-    
+    const isCompleted = session.status === 'Completed'
+    const partialPayment = isCompleted ? session.overallTotal : (session.partial_payment || 0)
+    const balance = isCompleted ? 0 : (session.overallTotal - partialPayment)
+
     let summaryRows = 1
     if (partialPayment > 0) summaryRows++
     if (balance > 0) summaryRows++
+    summaryRows++ // status row
+
+    const summaryHeight = 8 + (summaryRows * 8.5) + 3
     
-    const summaryHeight = 7 + (summaryRows * 8)
-    
-    if (y + summaryHeight > 285) { 
+    if (y + summaryHeight > 280) { 
       doc.addPage()
-      y = 10 
+      y = 15 
     }
-    
-    doc.setDrawColor(0)
-    doc.setLineWidth(0.4)
-    doc.rect(30, y, 150, summaryHeight)
-    
-    doc.setFillColor(180, 200, 230)
-    doc.rect(30, y, 150, 7, "FD")
-    doc.setFontSize(11)
+
+    doc.setFillColor(248, 250, 252) // slate-50
+    doc.setDrawColor(226, 232, 240) // slate-200
+    doc.setLineWidth(0.5)
+    doc.roundedRect(45, y, 120, summaryHeight, 3, 3, "FD")
+
     doc.setFont("helvetica", "bold")
-    doc.text(t('paymentSummary', lang).toUpperCase(), 105, y + 5, { align: "center" })
-    
-    let currentY = y + 13
-    doc.setFontSize(10)
+    doc.setFontSize(10.5)
+    doc.setTextColor(15, 23, 42)
+    doc.text(t('paymentSummary', lang).toUpperCase(), 105, y + 6, { align: "center" })
+
+    doc.setDrawColor(226, 232, 240)
+    doc.line(45, y + 9, 165, y + 9)
+
+    let currentY = y + 15
+    doc.setFontSize(9.5)
     
     doc.setFont("helvetica", "bold")
-    doc.text(t('overallAmount', lang), 45, currentY)
-    doc.text(`Rs ${formatInr(session.overallTotal)}`, 165, currentY, { align: "right" })
+    doc.text(t('overallAmount', lang), 55, currentY)
+    doc.text(`Rs ${formatInr(session.overallTotal)}`, 155, currentY, { align: "right" })
     
     if (partialPayment > 0) {
-      currentY += 8
-      doc.line(30, currentY - 5, 180, currentY - 5)
+      currentY += 8.5
+      doc.line(45, currentY - 5, 165, currentY - 5)
       doc.setFont("helvetica", "normal")
-      doc.text(t('partialPaid', lang), 45, currentY)
-      doc.text(`Rs ${formatInr(partialPayment)}`, 165, currentY, { align: "right" })
+      doc.setTextColor(71, 85, 105)
+      doc.text(t('partialPaid', lang), 55, currentY)
+      doc.text(`Rs ${formatInr(partialPayment)}`, 155, currentY, { align: "right" })
+      doc.setTextColor(0)
     }
     
     if (balance > 0) {
-      currentY += 8
-      doc.line(30, currentY - 5, 180, currentY - 5)
+      currentY += 8.5
+      doc.line(45, currentY - 5, 165, currentY - 5)
       doc.setFont("helvetica", "bold")
-      doc.setTextColor(180, 0, 0)
-      doc.text(t('balanceAmount', lang), 45, currentY)
-      doc.text(`Rs ${formatInr(balance)}`, 165, currentY, { align: "right" })
+      doc.setTextColor(185, 28, 28) // red-700
+      doc.text(t('balanceAmount', lang), 55, currentY)
+      doc.text(`Rs ${formatInr(balance)}`, 155, currentY, { align: "right" })
       doc.setTextColor(0)
     }
+
+    currentY += 8.5
+    doc.line(45, currentY - 5, 165, currentY - 5)
+    doc.setFont("helvetica", "bold")
+    doc.setTextColor(isCompleted ? "#15803d" : "#d97706") // green-700 or amber-600
+    const paymentStatusStr = isCompleted ? t('completed', lang) : (partialPayment > 0 ? t('partialPaid', lang) : t('pending', lang))
+    doc.text(lang === 'te' ? "పేమెంట్ స్థితి" : "Payment Status", 55, currentY)
+    doc.text(paymentStatusStr, 155, currentY, { align: "right" })
+    doc.setTextColor("#000000")
 
     toast.dismiss(toastId)
     if (action === 'download') {
