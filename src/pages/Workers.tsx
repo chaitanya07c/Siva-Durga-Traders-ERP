@@ -174,6 +174,21 @@ export function Workers() {
       return row
     })
 
+    const totalSalaryPayable = employees.reduce((sum, emp) => {
+      const stats = getStats(emp.id)
+      return sum + (stats.present + stats.half * 0.5) * Number(emp.daily_wage || 0)
+    }, 0)
+
+    sheetData.push({
+      "S.No.": "",
+      "Employee Name": "",
+      "Daily Salary (Rs)": "",
+      "Present Days": "",
+      "Half Days": "",
+      "Absent Days": "Total",
+      "Salary Payable (Rs)": `₹${totalSalaryPayable.toLocaleString('en-IN')}`
+    })
+
     const ws = XLSX.utils.json_to_sheet(sheetData)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Attendance")
@@ -207,12 +222,12 @@ export function Workers() {
     }, 0)
 
     body.push([
-      "TOTAL",
       "",
       "",
       "",
       "",
       "",
+      "Total",
       `Rs ${totalSalaryPayable.toLocaleString('en-IN')}`
     ])
 
@@ -539,7 +554,8 @@ export function Workers() {
                     )
                   })}
                   <tr className="bg-muted/50 font-bold border-t-2 border-slate-300">
-                    <td className="px-4 py-3" colSpan={6}>{lang === 'te' ? "మొత్తం" : "TOTAL"}</td>
+                    <td className="px-4 py-3" colSpan={5}></td>
+                    <td className="px-4 py-3 text-center">{lang === 'te' ? "మొత్తం" : "Total"}</td>
                     <td className="px-4 py-3 text-right text-green-700 text-base font-extrabold">
                       ₹{employees.reduce((sum, emp) => {
                         const stats = getStats(emp.id)

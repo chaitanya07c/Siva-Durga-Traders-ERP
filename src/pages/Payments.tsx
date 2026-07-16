@@ -632,7 +632,7 @@ export function Payments() {
                               } else {
                                 groupShops = targetShop ? [targetShop] : []
                               }
-                              generateCombinedGroupPDF(groupShops, 'download', lang, targetShop || groupShops[0], session.bill_ids)
+                              generateCombinedGroupPDF(groupShops, 'download', lang, targetShop || groupShops[0], undefined)
                             } else {
                               generateCombinedPDF(session, 'download', lang, undefined, targetShop)
                             }
@@ -656,7 +656,7 @@ export function Payments() {
                               } else {
                                 groupShops = targetShop ? [targetShop] : []
                               }
-                              generateCombinedGroupPDF(groupShops, 'print', lang, targetShop || groupShops[0], session.bill_ids)
+                              generateCombinedGroupPDF(groupShops, 'print', lang, targetShop || groupShops[0], undefined)
                             } else {
                               generateCombinedPDF(session, 'print', lang, undefined, targetShop)
                             }
@@ -680,7 +680,7 @@ export function Payments() {
                               } else {
                                 groupShops = targetShop ? [targetShop] : []
                               }
-                              shareCombinedGroupWhatsApp(groupShops, lang, targetShop || groupShops[0], session.bill_ids)
+                              shareCombinedGroupWhatsApp(groupShops, lang, targetShop || groupShops[0], undefined)
                             } else {
                               shareWhatsApp(session, lang, undefined, targetShop)
                             }
