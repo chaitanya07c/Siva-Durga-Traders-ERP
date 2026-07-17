@@ -94,7 +94,12 @@ export const generateProfessionalPDF = async (
         doc.text(bill.metadataLeft[i] || '', 15, y + (i * 5))
       }
       for (let i = 1; i < bill.metadataRight.length; i++) {
-        doc.text(bill.metadataRight[i] || '', 195, y + (i * 5))
+        const text = bill.metadataRight[i] || ''
+        if (text.startsWith("Date:")) {
+          doc.text(text, 170, y + (i * 5))
+        } else {
+          doc.text(text, 195, y + (i * 5), { align: "right" })
+        }
       }
 
       // Draw Table
