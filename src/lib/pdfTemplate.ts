@@ -201,8 +201,11 @@ export const generateProfessionalPDF = async (
     doc.text(`Rs ${formatInr(data.paymentSummary.balanceAmount || 0)}`, 160, summaryY + 20.5, { align: "right" })
     doc.line(45, summaryY + 23, 165, summaryY + 23)
 
-    // Row 3
-    doc.setTextColor(180, 100, 0)
+    if (data.paymentSummary.status === 'Completed') {
+      doc.setTextColor(21, 128, 61)
+    } else {
+      doc.setTextColor(180, 100, 0)
+    }
     doc.text("Payment Status", 50, summaryY + 28.5)
     doc.text(data.paymentSummary.status, 160, summaryY + 28.5, { align: "right" })
 
