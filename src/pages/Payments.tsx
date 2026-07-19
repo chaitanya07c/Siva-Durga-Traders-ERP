@@ -643,6 +643,20 @@ export function Payments() {
                   </tr>
                 ))
               )}
+              <tr className="bg-muted/50 font-bold border-t-2 border-slate-300">
+                <td className="px-4 py-3" colSpan={3}></td>
+                <td className="px-4 py-3 text-center">
+                  {activeTab === 'Pending' 
+                    ? (lang === 'te' ? `మొత్తం పెండింగ్ బిల్లులు : ${filteredSessions.length}` : `Total Pending Bills : ${filteredSessions.length}`) 
+                    : (lang === 'te' ? `మొత్తం పూర్తయిన బిల్లులు : ${filteredSessions.length}` : `Total Completed Bills : ${filteredSessions.length}`)}
+                </td>
+                <td className="px-4 py-3"></td>
+                <td className="px-4 py-3 text-right text-green-700 text-base font-extrabold" colSpan={3}>
+                  {lang === 'te' 
+                    ? `మొత్తం అమౌంట్ : ₹${new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(filteredSessions.reduce((sum, s) => sum + s.overallTotal, 0))}` 
+                    : `Overall Total Amount : ₹${new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(filteredSessions.reduce((sum, s) => sum + s.overallTotal, 0))}`}
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
