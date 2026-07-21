@@ -33,6 +33,7 @@ export type BillBreakdown = {
   session_id?: string
   shop?: Shop
   session_partial_payment?: number
+  payment_date?: string | null
 }
 
 export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' | 'te'): Promise<{shop: Shop, bills: BillBreakdown[]}> => {
@@ -69,7 +70,9 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
       previous_balance: fb.previous_balance,
       advance: fb.advance,
       remarks: fb.remarks,
-      session_id: fb.session_id || fb.id
+      session_id: fb.session_id || fb.id,
+      session_partial_payment: fb.session_partial_payment || 0,
+      payment_date: fb.payment_date
     }
   }) || []
 
@@ -132,6 +135,20 @@ export const generateCombinedPDF = async (
       paymentStatus = "Partial Paid"
     }
 
+        const historyMap = new Map<string, { date: string, amount: number }>()
+    bills.forEach(b => {
+      if (b.session_partial_payment && b.session_partial_payment > 0 && b.payment_date) {
+        const sId = b.session_id || b.id || ''
+        if (!historyMap.has(sId)) {
+          historyMap.set(sId, {
+            date: b.payment_date,
+            amount: b.session_partial_payment
+          })
+        }
+      }
+    })
+    const paymentHistory = Array.from(historyMap.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
     const documentData: PDFDocumentData = {
       title: "PURCHASE INVOICE",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
@@ -172,7 +189,8 @@ export const generateCombinedPDF = async (
         overallAmount: session.overallTotal || 0,
         balanceAmount: balance || 0,
         partialPaid: partialPayment || 0,
-        status: paymentStatus
+        status: paymentStatus,
+        paymentHistory
       }
     }
 
@@ -387,7 +405,8 @@ export const generateCombinedGroupPDF = async (
           remarks: fb.remarks,
           shop: fb.shops as Shop,
           session_id: fb.session_id || fb.id,
-          session_partial_payment: fb.session_partial_payment || 0
+          session_partial_payment: fb.session_partial_payment || 0,
+          payment_date: fb.payment_date
         }
       })
     }
@@ -402,6 +421,20 @@ export const generateCombinedGroupPDF = async (
     } else if (amountPaid > 0) {
       paymentStatus = "Partial Paid"
     }
+
+    const historyMap = new Map<string, { date: string, amount: number }>()
+    reconstructedBills.forEach(b => {
+      if (b.session_partial_payment && b.session_partial_payment > 0 && b.payment_date) {
+        const sId = b.session_id || b.id || ''
+        if (!historyMap.has(sId)) {
+          historyMap.set(sId, {
+            date: b.payment_date,
+            amount: b.session_partial_payment
+          })
+        }
+      }
+    })
+    const paymentHistory = Array.from(historyMap.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
     const dateToUse = date || reconstructedBills[0]?.date
     const documentData: PDFDocumentData = {
@@ -444,7 +477,8 @@ export const generateCombinedGroupPDF = async (
         overallAmount: overallBillAmount,
         balanceAmount: balanceAmount,
         partialPaid: amountPaid,
-        status: paymentStatus
+        status: paymentStatus,
+        paymentHistory
       }
     }
 

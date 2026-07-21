@@ -1,6 +1,7 @@
 import jsPDF from "jspdf"
 import "jspdf-autotable"
 import { toast } from "sonner"
+import { formatDate } from "./utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -27,8 +28,32 @@ export type PDFDocumentData = {
     balanceAmount: number
     partialPaid: number
     status: string
+    paymentHistory?: { date: string, amount: number }[]
   }
   filename: string
+}
+
+const drawRupeeValue = (doc: jsPDF, amount: number, x: number, y: number, r: number, g: number, b: number) => {
+  const amountStr = formatInr(amount || 0)
+  const textWidth = doc.getTextWidth(amountStr)
+  const rupeeWidth = 1.6
+  const spacing = 0.4
+  const rupeeX = x - textWidth - rupeeWidth - spacing
+  
+  const originalLineWidth = doc.getLineWidth()
+  
+  doc.setLineWidth(0.22)
+  doc.setDrawColor(r, g, b)
+  
+  doc.line(rupeeX, y - 2.3, rupeeX + 1.6, y - 2.3)
+  doc.line(rupeeX, y - 1.6, rupeeX + 1.3, y - 1.6)
+  doc.line(rupeeX + 0.4, y - 2.3, rupeeX + 0.4, y - 1.0)
+  doc.line(rupeeX + 0.4, y - 1.6, rupeeX + 1.1, y - 1.3)
+  doc.line(rupeeX + 1.1, y - 1.3, rupeeX + 0.4, y - 1.0)
+  doc.line(rupeeX + 0.6, y - 1.2, rupeeX + 1.3, y)
+  
+  doc.setLineWidth(originalLineWidth)
+  doc.text(amountStr, x, y, { align: "right" })
 }
 
 export const generateProfessionalPDF = async (
@@ -164,50 +189,153 @@ export const generateProfessionalPDF = async (
     })
 
     // Payment Summary
-    const summaryHeight = 31
-    if (y + summaryHeight > 280) {
-      doc.addPage()
-      drawHeader()
-      y = 42
-    }
+    const isPartial = data.paymentSummary.status === 'Partial Payment' || data.paymentSummary.status === 'Partial Paid'
+    const paymentHistory = data.paymentSummary.paymentHistory || []
 
-    const summaryY = y + 5
-    doc.setDrawColor(210, 220, 235)
-    doc.setFillColor(255, 255, 255)
-    doc.setLineWidth(0.4)
-    doc.roundedRect(45, summaryY, 120, summaryHeight, 4, 4, "FD")
+    if (!isPartial || paymentHistory.length === 0) {
+      const summaryHeight = 31
+      if (y + summaryHeight > 280) {
+        doc.addPage()
+        drawHeader()
+        y = 42
+      }
 
-    doc.setFillColor(245, 247, 250)
-    doc.rect(45, summaryY, 120, 7, "FD")
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(10)
-    doc.setTextColor(40, 50, 70)
-    doc.text("PAYMENT SUMMARY", 105, summaryY + 5, { align: "center" })
+      const summaryY = y + 5
+      doc.setDrawColor(210, 220, 235)
+      doc.setFillColor(255, 255, 255)
+      doc.setLineWidth(0.4)
+      doc.roundedRect(45, summaryY, 120, summaryHeight, 4, 4, "FD")
 
-    doc.setDrawColor(225, 230, 238)
-    doc.setLineWidth(0.3)
+      doc.setFillColor(245, 247, 250)
+      doc.rect(45, summaryY, 120, 7, "FD")
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(10)
+      doc.setTextColor(40, 50, 70)
+      doc.text("PAYMENT SUMMARY", 105, summaryY + 5, { align: "center" })
 
-    // Row 1
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(9.5)
-    doc.setTextColor(50, 50, 50)
-    doc.text("Overall Amount", 50, summaryY + 12.5)
-    doc.text(`Rs ${formatInr(data.paymentSummary.overallAmount || 0)}`, 160, summaryY + 12.5, { align: "right" })
-    doc.line(45, summaryY + 15, 165, summaryY + 15)
+      doc.setDrawColor(225, 230, 238)
+      doc.setLineWidth(0.3)
 
-    // Row 2
-    doc.setTextColor(180, 0, 0)
-    doc.text("Balance Amount", 50, summaryY + 20.5)
-    doc.text(`Rs ${formatInr(data.paymentSummary.balanceAmount || 0)}`, 160, summaryY + 20.5, { align: "right" })
-    doc.line(45, summaryY + 23, 165, summaryY + 23)
+      // Row 1
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
+      doc.setTextColor(50, 50, 50)
+      doc.text("Overall Amount", 50, summaryY + 12.5)
+      doc.text(`Rs ${formatInr(data.paymentSummary.overallAmount || 0)}`, 160, summaryY + 12.5, { align: "right" })
+      doc.line(45, summaryY + 15, 165, summaryY + 15)
 
-    if (data.paymentSummary.status === 'Completed') {
-      doc.setTextColor(21, 128, 61)
+      // Row 2
+      doc.setTextColor(180, 0, 0)
+      doc.text("Balance Amount", 50, summaryY + 20.5)
+      doc.text(`Rs ${formatInr(data.paymentSummary.balanceAmount || 0)}`, 160, summaryY + 20.5, { align: "right" })
+      doc.line(45, summaryY + 23, 165, summaryY + 23)
+
+      if (data.paymentSummary.status === 'Completed') {
+        doc.setTextColor(21, 128, 61)
+      } else {
+        doc.setTextColor(180, 100, 0)
+      }
+      doc.text("Payment Status", 50, summaryY + 28.5)
+      doc.text(data.paymentSummary.status, 160, summaryY + 28.5, { align: "right" })
+      
+      y = summaryY + summaryHeight
     } else {
+      // Detailed partial payment summary box
+      const N = paymentHistory.length
+      const summaryHeight = 52 + (N * 6.5)
+      
+      if (y + summaryHeight > 280) {
+        doc.addPage()
+        drawHeader()
+        y = 42
+      }
+      
+      const summaryY = y + 5
+      
+      doc.setDrawColor(210, 220, 235)
+      doc.setFillColor(255, 255, 255)
+      doc.setLineWidth(0.4)
+      doc.roundedRect(45, summaryY, 120, summaryHeight, 4, 4, "FD")
+
+      doc.setFillColor(245, 247, 250)
+      doc.rect(45, summaryY, 120, 7, "FD")
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(10)
+      doc.setTextColor(40, 50, 70)
+      doc.text("PAYMENT SUMMARY", 105, summaryY + 5, { align: "center" })
+
+      doc.setDrawColor(225, 230, 238)
+      doc.setLineWidth(0.3)
+      
+      let curY = summaryY + 7
+      
+      // Row 1: Overall Bill Amount
+      curY += 5.5
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
+      doc.setTextColor(50, 50, 50)
+      doc.text("Overall Bill Amount", 50, curY)
+      drawRupeeValue(doc, data.paymentSummary.overallAmount, 160, curY, 50, 50, 50)
+
+      curY += 2.5
+      doc.line(45, curY, 165, curY)
+
+      // Row 2: Payment History Section Title
+      curY += 5.5
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
+      doc.setTextColor(40, 50, 70)
+      doc.text("Payment History", 50, curY)
+
+      curY += 2.5
+      doc.line(45, curY, 165, curY)
+
+      // Row 3: Payment History Headers
+      curY += 5.0
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(8.5)
+      doc.setTextColor(100, 110, 120)
+      doc.text("Payment Date", 50, curY)
+      doc.text("Amount Paid", 160, curY, { align: "right" })
+
+      curY += 2.5
+      doc.line(45, curY, 165, curY)
+
+      // Row 4: Payment History Rows
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(9)
+      doc.setTextColor(80, 80, 80)
+      paymentHistory.forEach((record) => {
+        curY += 6.5
+        const formattedDate = formatDate(record.date)
+        doc.text(formattedDate, 50, curY)
+        drawRupeeValue(doc, record.amount, 160, curY, 80, 80, 80)
+      })
+
+      curY += 2.5
+      doc.line(45, curY, 165, curY)
+
+      // Row 5: Balance Amount
+      curY += 5.5
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
+      doc.setTextColor(180, 0, 0)
+      doc.text("Balance Amount", 50, curY)
+      drawRupeeValue(doc, data.paymentSummary.balanceAmount, 160, curY, 180, 0, 0)
+
+      curY += 2.5
+      doc.line(45, curY, 165, curY)
+
+      // Row 6: Payment Status
+      curY += 5.5
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
       doc.setTextColor(180, 100, 0)
+      doc.text("Payment Status", 50, curY)
+      doc.text("Partial Payment", 160, curY, { align: "right" })
+      
+      y = summaryY + summaryHeight
     }
-    doc.text("Payment Status", 50, summaryY + 28.5)
-    doc.text(data.paymentSummary.status, 160, summaryY + 28.5, { align: "right" })
 
     toast.dismiss(toastId)
     if (action === 'download') {
