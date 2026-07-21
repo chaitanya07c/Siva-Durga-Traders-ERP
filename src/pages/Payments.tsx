@@ -61,15 +61,76 @@ export function Payments() {
 
     if (data) {
       // Calculate overall pending and completed amounts
-      let pendingSum = 0
       let completedSum = 0
+      
+      const pendingGroups = new Map<string, {
+        shopName: string;
+        session_id: string;
+        grandTotal: number;
+        partialPayment: number;
+        bills: any[];
+      }>()
+
       data.forEach(d => {
         if (d.payment_status === 'Pending') {
-          pendingSum += (d.grand_total - (d.session_partial_payment || 0))
+          const key = d.session_id || d.id
+          const shopName = (d.shops as any)?.name || 'Unknown'
+          if (!pendingGroups.has(key)) {
+            pendingGroups.set(key, {
+              shopName,
+              session_id: key,
+              grandTotal: 0,
+              partialPayment: Number(d.session_partial_payment || 0),
+              bills: []
+            })
+          }
+          const g = pendingGroups.get(key)!
+          g.grandTotal += Number(d.grand_total || 0)
+          g.bills.push(d)
         } else if (d.payment_status === 'Completed') {
-          completedSum += d.grand_total
+          completedSum += Number(d.grand_total || 0)
         }
       })
+
+      let pendingSum = 0
+      pendingGroups.forEach(g => {
+        pendingSum += Math.max(0, g.grandTotal - g.partialPayment)
+      })
+
+      // Temporary debug logging
+      console.log("=== DEBUG: Payments Pending Calculation ===")
+      const loggedSessions = new Set<string>()
+      data.forEach(d => {
+        const shopName = (d.shops as any)?.name || 'Unknown'
+        const status = d.payment_status
+        let totalPaid = 0
+        let grandTotal = Number(d.grand_total || 0)
+        let remainingBalance = 0
+        let amountIncluded = 0
+
+        if (status === 'Completed') {
+          totalPaid = grandTotal
+          remainingBalance = 0
+          amountIncluded = 0
+        } else {
+          const key = d.session_id || d.id
+          const g = pendingGroups.get(key)
+          if (g) {
+            totalPaid = g.partialPayment
+            remainingBalance = Math.max(0, g.grandTotal - g.partialPayment)
+            if (!loggedSessions.has(key)) {
+              amountIncluded = remainingBalance
+              loggedSessions.add(key)
+            } else {
+              amountIncluded = 0
+            }
+          }
+        }
+
+        console.log(`[DEBUG Payments] Bill ID: ${d.id} | Shop: ${shopName} | Grand Total: ${grandTotal} | Total Paid: ${totalPaid} | Remaining Balance: ${remainingBalance} | Status: ${status} | Amount Included: ${amountIncluded}`)
+      })
+      console.log(`[DEBUG Payments] Calculated overallPending: ${pendingSum}`)
+
       setOverallPending(pendingSum)
       setOverallCompleted(completedSum)
 

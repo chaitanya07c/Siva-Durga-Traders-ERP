@@ -47,18 +47,80 @@ export function Dashboard() {
     // Load ALL purchases to calculate overallPending and pendingShopsCount, and monthlyPurchasePayments
     const { data: allPurchases } = await supabase
       .from('purchases')
-      .select('grand_total, payment_status, session_partial_payment, payment_date, date, shop_id')
+      .select('id, session_id, grand_total, payment_status, session_partial_payment, payment_date, date, shop_id, shops(name)')
     
-    let overallPending = 0
     const pendingShopIds = new Set<string>()
     let monthlyPurchasePayments = 0
 
+    // Group pending bills by session_id || id
+    const pendingGroups = new Map<string, {
+      shopName: string;
+      session_id: string;
+      grandTotal: number;
+      partialPayment: number;
+      bills: any[];
+    }>()
+
     allPurchases?.forEach(p => {
       if (p.payment_status === 'Pending') {
-        overallPending += (Number(p.grand_total) - Number(p.session_partial_payment || 0))
+        const key = p.session_id || p.id
+        const shopName = (p.shops as any)?.name || 'Unknown'
+        if (!pendingGroups.has(key)) {
+          pendingGroups.set(key, {
+            shopName,
+            session_id: key,
+            grandTotal: 0,
+            partialPayment: Number(p.session_partial_payment || 0),
+            bills: []
+          })
+        }
+        const g = pendingGroups.get(key)!
+        g.grandTotal += Number(p.grand_total || 0)
+        g.bills.push(p)
         pendingShopIds.add(p.shop_id)
       }
+    })
 
+    let overallPending = 0
+    pendingGroups.forEach(g => {
+      overallPending += Math.max(0, g.grandTotal - g.partialPayment)
+    })
+
+    // Temporary debug logging
+    console.log("=== DEBUG: Dashboard Pending Calculation ===")
+    const loggedSessions = new Set<string>()
+    allPurchases?.forEach(p => {
+      const shopName = (p.shops as any)?.name || 'Unknown'
+      const status = p.payment_status
+      let totalPaid = 0
+      let grandTotal = Number(p.grand_total || 0)
+      let remainingBalance = 0
+      let amountIncluded = 0
+
+      if (status === 'Completed') {
+        totalPaid = grandTotal
+        remainingBalance = 0
+        amountIncluded = 0
+      } else {
+        const key = p.session_id || p.id
+        const g = pendingGroups.get(key)
+        if (g) {
+          totalPaid = g.partialPayment
+          remainingBalance = Math.max(0, g.grandTotal - g.partialPayment)
+          if (!loggedSessions.has(key)) {
+            amountIncluded = remainingBalance
+            loggedSessions.add(key)
+          } else {
+            amountIncluded = 0
+          }
+        }
+      }
+
+      console.log(`[DEBUG Dashboard] Bill ID: ${p.id} | Shop: ${shopName} | Grand Total: ${grandTotal} | Total Paid: ${totalPaid} | Remaining Balance: ${remainingBalance} | Status: ${status} | Amount Included: ${amountIncluded}`)
+    })
+    console.log(`[DEBUG Dashboard] Calculated overallPending: ${overallPending}`)
+
+    allPurchases?.forEach(p => {
       // Cash flow Purchase Payments in current month
       const payDate = p.payment_date || p.date
       if (payDate >= startOfMonth && payDate <= endOfMonth) {
