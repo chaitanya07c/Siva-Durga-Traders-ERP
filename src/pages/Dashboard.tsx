@@ -86,39 +86,7 @@ export function Dashboard() {
       overallPending += Math.max(0, g.grandTotal - g.partialPayment)
     })
 
-    // Temporary debug logging
-    console.log("=== DEBUG: Dashboard Pending Calculation ===")
-    const loggedSessions = new Set<string>()
-    allPurchases?.forEach(p => {
-      const shopName = (p.shops as any)?.name || 'Unknown'
-      const status = p.payment_status
-      let totalPaid = 0
-      let grandTotal = Number(p.grand_total || 0)
-      let remainingBalance = 0
-      let amountIncluded = 0
 
-      if (status === 'Completed') {
-        totalPaid = grandTotal
-        remainingBalance = 0
-        amountIncluded = 0
-      } else {
-        const key = p.session_id || p.id
-        const g = pendingGroups.get(key)
-        if (g) {
-          totalPaid = g.partialPayment
-          remainingBalance = Math.max(0, g.grandTotal - g.partialPayment)
-          if (!loggedSessions.has(key)) {
-            amountIncluded = remainingBalance
-            loggedSessions.add(key)
-          } else {
-            amountIncluded = 0
-          }
-        }
-      }
-
-      console.log(`[DEBUG Dashboard] Bill ID: ${p.id} | Shop: ${shopName} | Grand Total: ${grandTotal} | Total Paid: ${totalPaid} | Remaining Balance: ${remainingBalance} | Status: ${status} | Amount Included: ${amountIncluded}`)
-    })
-    console.log(`[DEBUG Dashboard] Calculated overallPending: ${overallPending}`)
 
     allPurchases?.forEach(p => {
       // Cash flow Purchase Payments in current month
