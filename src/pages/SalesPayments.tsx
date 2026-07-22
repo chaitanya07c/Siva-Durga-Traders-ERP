@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search } from "lucide-react"
+import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet } from "lucide-react"
 import { toast } from "sonner"
 import { fetchSalesBillBreakdowns, generateSalesCombinedPDF, shareSalesWhatsApp, formatQuantity } from "@/lib/salesPdfUtils"
 import type { GroupedSaleSession, SalesBillBreakdown } from "@/lib/salesPdfUtils"
@@ -17,6 +17,7 @@ export function SalesPayments() {
   const [searchQuery, setSearchQuery] = useState("")
   const [overallPending, setOverallPending] = useState(0)
   const [overallCompleted, setOverallCompleted] = useState(0)
+  const [overallAdvance, setOverallAdvance] = useState(0)
 
   const [detailsModal, setDetailsModal] = useState<{ session: GroupedSaleSession, bills: SalesBillBreakdown[] } | null>(null)
   
@@ -28,10 +29,12 @@ export function SalesPayments() {
   const [editingInvoice, setEditingInvoice] = useState<SalesBillBreakdown | null>(null)
   const [editInvoiceDate, setEditInvoiceDate] = useState("")
   const [editInvoiceRemarks, setEditInvoiceRemarks] = useState("")
+  const [editInvoiceAdvance, setEditInvoiceAdvance] = useState(0)
   const [editInvoicePartialPayment, setEditInvoicePartialPayment] = useState(0)
   const [editInvoiceItems, setEditInvoiceItems] = useState<{ name: string, quantity: number, rate: number, total: number }[]>([])
 
   const [paymentInputAmount, setPaymentInputAmount] = useState<number>(0)
+  const [advanceInputAmount, setAdvanceInputAmount] = useState<number>(0)
 
   useEffect(() => {
     loadSessions()
@@ -52,9 +55,11 @@ export function SalesPayments() {
       .order('date', { ascending: false })
 
     if (data) {
-      // Calculate overall pending and completed amounts
+      // Calculate overall pending, completed, and active advance amounts
       let pendingSum = 0
       let completedSum = 0
+      let activeAdvanceSum = 0
+
       data.forEach(d => {
         const adv = Number(d.advance || 0)
         const additionalPaid = Number(d.partial_payment || 0)
@@ -66,10 +71,12 @@ export function SalesPayments() {
           completedSum += grandTotal
         } else {
           pendingSum += rem
+          activeAdvanceSum += (adv + additionalPaid)
         }
       })
       setOverallPending(pendingSum)
       setOverallCompleted(completedSum)
+      setOverallAdvance(activeAdvanceSum)
 
       // Filter for active tab display
       const activeData = data.filter(d => {
@@ -165,29 +172,33 @@ export function SalesPayments() {
   const handleCompletePaymentInitiate = (session: GroupedSaleSession) => {
     setPaymentModal(session)
     setPaymentInputAmount(0)
+    setAdvanceInputAmount(session.advance || 0)
   }
 
   const handleSavePaymentWithHistory = async (isFinalComplete: boolean = false) => {
     if (!paymentModal) return
     try {
       const today = new Date().toISOString().split('T')[0]
-      const groupAdv = Number(paymentModal.advance || 0)
-      const groupAddPaid = Number(paymentModal.partial_payment || 0)
-      const currentTotalPaid = groupAdv + groupAddPaid
+      const existingAdv = Number(paymentModal.advance || 0)
+      const newAdvInput = existingAdv > 0 ? existingAdv : Number(advanceInputAmount || 0)
+      const existingAdditional = Number(paymentModal.partial_payment || 0)
       const overallTotal = Number(paymentModal.overallTotal || 0)
-      const remainingBefore = Math.max(0, overallTotal - currentTotalPaid)
+      
+      const currentTotalPaid = existingAdv + existingAdditional
+      const effectiveBasePaid = newAdvInput > existingAdv ? (newAdvInput + existingAdditional) : currentTotalPaid
+      const remainingBefore = Math.max(0, overallTotal - effectiveBasePaid)
 
-      let newAmountToPay = isFinalComplete ? remainingBefore : Number(paymentInputAmount || 0)
-      if (newAmountToPay <= 0 && !isFinalComplete) {
-        toast.error("Please enter a valid payment amount")
+      let newAdditionalToPay = isFinalComplete ? remainingBefore : Number(paymentInputAmount || 0)
+      if (newAdditionalToPay <= 0 && newAdvInput <= existingAdv && !isFinalComplete) {
+        toast.error("Please enter a valid payment or advance amount")
         return
       }
-      if (newAmountToPay > remainingBefore) {
-        newAmountToPay = remainingBefore
+      if (newAdditionalToPay > remainingBefore) {
+        newAdditionalToPay = remainingBefore
       }
 
-      const newTotalAdditional = groupAddPaid + newAmountToPay
-      const newTotalPaid = Math.min(overallTotal, groupAdv + newTotalAdditional)
+      const totalNewAdditional = existingAdditional + newAdditionalToPay
+      const newTotalPaid = Math.min(overallTotal, newAdvInput + totalNewAdditional)
       const newRemainingBalance = Math.max(0, overallTotal - newTotalPaid)
 
       let newStatus: 'Pending' | 'Partial Payment' | 'Completed' = 'Pending'
@@ -197,66 +208,72 @@ export function SalesPayments() {
         newStatus = 'Partial Payment'
       }
 
-      // Fetch current bills to update individual partial_payment and payment_history
+      // Fetch current bills to update individual partial_payment, advance, and payment_history
       const { data: currentBills } = await supabase
         .from('sales')
         .select('id, total_amount, advance, partial_payment, payment_history')
         .in('id', paymentModal.bill_ids)
 
       if (currentBills && currentBills.length > 0) {
-        const perBillPaymentShare = newAmountToPay / currentBills.length
+        const perBillAdditionalShare = newAdditionalToPay / currentBills.length
 
         for (const bill of currentBills) {
           const billTotal = Number(bill.total_amount || 0)
-          const billAdv = Number(bill.advance || 0)
+          const billOldAdv = Number(bill.advance || 0)
+          const billNewAdv = billOldAdv > 0 ? billOldAdv : (newAdvInput / currentBills.length)
+          
           const billOldAdditional = Number(bill.partial_payment || 0)
-          const billNewAdditional = billOldAdditional + perBillPaymentShare
-          const billTotalPaid = Math.min(billTotal, billAdv + billNewAdditional)
+          const billNewAdditional = billOldAdditional + perBillAdditionalShare
+          const billTotalPaid = Math.min(billTotal, billNewAdv + billNewAdditional)
           const billRem = Math.max(0, billTotal - billTotalPaid)
 
           const existingHistory = Array.isArray(bill.payment_history) ? [...bill.payment_history] : []
-          if (billAdv > 0) {
-            let hasAdv = existingHistory.some(h => h.remarks === "Advance Payment" || h.amount === billAdv)
+          
+          if (billNewAdv > 0) {
+            let hasAdv = existingHistory.some(h => h.remarks === "Advance Payment" || (billOldAdv > 0 && h.amount === billOldAdv))
             if (!hasAdv) {
               existingHistory.unshift({
                 id: bill.id + '_adv',
                 date: today,
-                amount: billAdv,
-                remainingBalance: Math.max(0, billTotal - billAdv),
+                amount: billNewAdv,
+                remainingBalance: Math.max(0, billTotal - billNewAdv),
                 remarks: "Advance Payment"
               })
             }
           }
 
-          const newEntry = {
-            id: crypto.randomUUID(),
-            date: today,
-            amount: perBillPaymentShare,
-            remainingBalance: billRem
+          if (perBillAdditionalShare > 0) {
+            existingHistory.push({
+              id: crypto.randomUUID(),
+              date: today,
+              amount: perBillAdditionalShare,
+              remainingBalance: billRem
+            })
           }
 
-          const updatedHistory = [...existingHistory, newEntry]
-
           await supabase.from('sales').update({
+            advance: billNewAdv,
             partial_payment: billNewAdditional,
             payment_status: newStatus,
             payment_date: today,
-            payment_history: updatedHistory
+            payment_history: existingHistory
           }).eq('id', bill.id)
         }
       }
 
-      toast.success(newStatus === 'Completed' ? "Payment marked as Completed!" : "Partial payment saved successfully!")
+      toast.success(newStatus === 'Completed' ? "Payment marked as Completed!" : "Payment saved successfully!")
       
       const sessionToExport: GroupedSaleSession = { 
         ...paymentModal, 
-        partial_payment: newTotalAdditional, 
+        advance: newAdvInput,
+        partial_payment: totalNewAdditional, 
         payment_date: today, 
         status: newStatus 
       }
 
       setPaymentModal(null)
       setPaymentInputAmount(0)
+      setAdvanceInputAmount(0)
 
       if (newStatus === 'Completed') {
         setExportPromptSession(sessionToExport)
@@ -281,6 +298,7 @@ export function SalesPayments() {
     setEditingInvoice(bill)
     setEditInvoiceDate(bill.date)
     setEditInvoiceRemarks(bill.remarks || "")
+    setEditInvoiceAdvance(bill.advance || 0)
     setEditInvoicePartialPayment(bill.partial_payment || 0)
     setEditInvoiceItems(bill.items.map(item => ({ ...item })))
   }
@@ -303,17 +321,23 @@ export function SalesPayments() {
         [curr.name]: curr
       }), {})
 
-      const newStatus = (editInvoicePartialPayment >= totalAmount) 
+      const advVal = Number(editInvoiceAdvance || 0)
+      const additionalPaid = Number(editInvoicePartialPayment || 0)
+      const totalPaid = advVal + additionalPaid
+      const rem = Math.max(0, totalAmount - totalPaid)
+
+      const newStatus = (rem === 0) 
         ? 'Completed' 
-        : (editInvoicePartialPayment > 0 ? 'Partial Payment' : 'Pending')
+        : (totalPaid > 0 ? 'Partial Payment' : 'Pending')
 
       const { error } = await supabase
         .from('sales')
         .update({
           date: editInvoiceDate,
           total_amount: totalAmount,
+          advance: advVal,
           remarks: editInvoiceRemarks,
-          partial_payment: editInvoicePartialPayment,
+          partial_payment: additionalPaid,
           payment_status: newStatus,
           items: itemsJson
         })
@@ -357,7 +381,7 @@ export function SalesPayments() {
         <h1 className="text-2xl font-bold">{t("salesPayments", lang)}</h1>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-card p-6 rounded-xl border shadow-sm flex items-center space-x-4">
           <div className="p-3 rounded-lg bg-orange-100 dark:bg-orange-950">
             <Clock className="w-6 h-6 text-orange-500" />
@@ -382,6 +406,20 @@ export function SalesPayments() {
             </p>
             <h3 className="text-2xl font-bold text-foreground mt-1">
               ₹{formatInr(overallCompleted)}
+            </h3>
+          </div>
+        </div>
+
+        <div className="bg-card p-6 rounded-xl border shadow-sm flex items-center space-x-4">
+          <div className="p-3 rounded-lg bg-purple-100 dark:bg-purple-950">
+            <Wallet className="w-6 h-6 text-purple-600" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">
+              {lang === 'te' ? "మొత్తం ఆడ్వాన్స్" : "Overall Advance Received"}
+            </p>
+            <h3 className="text-2xl font-bold text-foreground mt-1">
+              ₹{formatInr(overallAdvance)}
             </h3>
           </div>
         </div>
@@ -627,106 +665,176 @@ export function SalesPayments() {
       )}
 
       {/* Payment Completion / Record Partial Payment Modal */}
-      {paymentModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-background w-full max-w-lg rounded-2xl shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="p-5 border-b bg-slate-50 flex justify-between items-center sticky top-0 bg-background z-10">
-              <div>
-                <h2 className="text-xl font-bold">{t("paymentSummary", lang)}</h2>
-                <p className="text-xs text-muted-foreground">{paymentModal.buyer_name} • {paymentModal.date}</p>
-              </div>
-              <button onClick={() => setPaymentModal(null)} className="text-slate-400 hover:text-slate-600 text-lg font-medium">✕</button>
-            </div>
-            
-            <div className="p-6 space-y-5 overflow-y-auto flex-1">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border text-center">
+      {paymentModal && (() => {
+        const existingAdv = Number(paymentModal.advance || 0)
+        const hasExistingAdv = existingAdv > 0
+        const effectiveAdv = hasExistingAdv ? existingAdv : Number(advanceInputAmount || 0)
+        const existingAdditional = Number(paymentModal.partial_payment || 0)
+        const additionalInput = Number(paymentInputAmount || 0)
+        const totalAdditional = existingAdditional + additionalInput
+        const totalPaid = effectiveAdv + totalAdditional
+        const grandTotal = Number(paymentModal.overallTotal || 0)
+        const remainingBalance = Math.max(0, grandTotal - totalPaid)
+
+        let statusText = 'Pending'
+        if (remainingBalance === 0) statusText = 'Completed'
+        else if (totalPaid > 0) statusText = 'Partial Payment'
+
+        return (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-background w-full max-w-lg rounded-2xl shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b bg-slate-50 flex justify-between items-center sticky top-0 bg-background z-10">
                 <div>
-                  <p className="text-xs text-muted-foreground font-medium">{t("overallTotal", lang)}</p>
-                  <p className="text-base font-bold text-slate-800">₹{formatInr(paymentModal.overallTotal)}</p>
+                  <h2 className="text-xl font-bold">{t("paymentSummary", lang)}</h2>
+                  <p className="text-xs text-muted-foreground">{paymentModal.buyer_name} • {paymentModal.date}</p>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium">{t("advance", lang)}</p>
-                  <p className="text-base font-bold text-purple-600">₹{formatInr(paymentModal.advance || 0)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium">{t("amountPaid", lang)}</p>
-                  <p className="text-base font-bold text-green-600">₹{formatInr((paymentModal.advance || 0) + paymentModal.partial_payment)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium">{t("balanceAmount", lang)}</p>
-                  <p className="text-base font-bold text-red-600">₹{formatInr(Math.max(0, paymentModal.overallTotal - ((paymentModal.advance || 0) + paymentModal.partial_payment)))}</p>
-                </div>
+                <button onClick={() => setPaymentModal(null)} className="text-slate-400 hover:text-slate-600 text-lg font-medium">✕</button>
               </div>
               
-              <div className="space-y-2">
-                <label className="block font-medium text-sm text-slate-700">Enter Payment Amount Received Today (₹)</label>
-                <input 
-                  type="number" 
-                  className="w-full border p-3 rounded-lg text-lg font-semibold bg-background"
-                  value={paymentInputAmount || ''}
-                  onChange={e => setPaymentInputAmount(Number(e.target.value))}
-                  placeholder={`Max ₹${formatInr(Math.max(0, paymentModal.overallTotal - ((paymentModal.advance || 0) + paymentModal.partial_payment)))}`}
-                />
-              </div>
-
-              {/* Payment History Preview */}
-              {Array.isArray(paymentModal.payment_history) && paymentModal.payment_history.length > 0 && (
-                <div className="space-y-2 border-t pt-3">
-                  <h3 className="text-sm font-bold text-slate-800">{t("paymentHistorySection", lang)}</h3>
-                  <div className="border rounded-lg overflow-hidden text-xs">
-                    <table className="w-full text-left">
-                      <thead className="bg-slate-100 font-semibold text-slate-600">
-                        <tr>
-                          <th className="p-2">#</th>
-                          <th className="p-2">Date</th>
-                          <th className="p-2 text-right font-semibold">Amount Paid</th>
-                          <th className="p-2 text-right font-semibold">Running Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paymentModal.payment_history.map((h, i) => (
-                          <tr key={i} className="border-t">
-                            <td className="p-2 text-muted-foreground">{i + 1}</td>
-                            <td className="p-2">
-                              {formatDate(h.date)}
-                              {h.remarks === "Advance Payment" && (
-                                <span className="ml-1.5 bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded">Advance</span>
-                              )}
-                            </td>
-                            <td className="p-2 text-right font-bold text-green-600">₹{formatInr(h.amount)}</td>
-                            <td className="p-2 text-right font-medium text-slate-700">₹{formatInr(h.remainingBalance || 0)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              <div className="p-6 space-y-5 overflow-y-auto flex-1">
+                {/* Real-time breakdown metrics */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border text-center">
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium">{t("overallTotal", lang)}</p>
+                    <p className="text-base font-bold text-slate-800">₹{formatInr(grandTotal)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium">{t("advance", lang)}</p>
+                    <p className="text-base font-bold text-purple-600">₹{formatInr(effectiveAdv)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium">Additional Paid</p>
+                    <p className="text-base font-bold text-blue-600">₹{formatInr(totalAdditional)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium">{t("amountPaid", lang)}</p>
+                    <p className="text-base font-bold text-green-600">₹{formatInr(totalPaid)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium">{t("balanceAmount", lang)}</p>
+                    <p className="text-base font-bold text-red-600">₹{formatInr(remainingBalance)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium">Status</p>
+                    <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded mt-1 ${
+                      statusText === 'Completed' ? 'bg-green-100 text-green-700' :
+                      statusText === 'Partial Payment' ? 'bg-orange-100 text-orange-700' :
+                      'bg-amber-100 text-amber-700'
+                    }`}>
+                      {statusText}
+                    </span>
                   </div>
                 </div>
-              )}
-            </div>
+                
+                {/* Advance Amount Field */}
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <label className="block font-medium text-xs text-slate-700">Advance Amount (₹)</label>
+                    {hasExistingAdv && (
+                      <span className="bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                        Recorded (Read-Only)
+                      </span>
+                    )}
+                  </div>
+                  {hasExistingAdv ? (
+                    <input 
+                      type="number" 
+                      className="w-full border p-2.5 rounded-lg text-base font-semibold bg-slate-100 text-purple-800"
+                      value={existingAdv}
+                      disabled
+                      readOnly
+                    />
+                  ) : (
+                    <input 
+                      type="number"
+                      step="0.01" 
+                      className="w-full border p-2.5 rounded-lg text-base font-semibold bg-background"
+                      value={advanceInputAmount || ''}
+                      onChange={e => setAdvanceInputAmount(Number(e.target.value))}
+                      placeholder="Enter advance amount (optional)"
+                    />
+                  )}
+                  {hasExistingAdv && (
+                    <p className="text-[11px] text-muted-foreground italic">
+                      Advance payment already recorded. Only additional partial payments are allowed.
+                    </p>
+                  )}
+                </div>
 
-            <div className="p-4 border-t flex flex-col gap-2 bg-slate-50">
-              <button 
-                onClick={() => handleSavePaymentWithHistory(false)} 
-                className="w-full bg-orange-100 text-orange-700 py-3 rounded-xl font-semibold hover:bg-orange-200 transition-colors"
-              >
-                {t("savePartial", lang)}
-              </button>
-              <button 
-                onClick={() => handleSavePaymentWithHistory(true)} 
-                className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-sm flex justify-center items-center"
-              >
-                <CheckCircle2 className="w-5 h-5 mr-2" /> {t("completePayment", lang)}
-              </button>
-              <button 
-                onClick={() => setPaymentModal(null)} 
-                className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium mt-1"
-              >
-                Cancel
-              </button>
+                {/* Additional Payment Field */}
+                <div className="space-y-1">
+                  <label className="block font-medium text-xs text-slate-700">
+                    Enter Additional Payment Amount Received Today (₹)
+                  </label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    className="w-full border p-2.5 rounded-lg text-lg font-semibold bg-background"
+                    value={paymentInputAmount || ''}
+                    onChange={e => setPaymentInputAmount(Number(e.target.value))}
+                    placeholder={`Max ₹${formatInr(remainingBalance)}`}
+                  />
+                </div>
+
+                {/* Payment History Preview */}
+                {Array.isArray(paymentModal.payment_history) && paymentModal.payment_history.length > 0 && (
+                  <div className="space-y-2 border-t pt-3">
+                    <h3 className="text-sm font-bold text-slate-800">{t("paymentHistorySection", lang)}</h3>
+                    <div className="border rounded-lg overflow-hidden text-xs">
+                      <table className="w-full text-left">
+                        <thead className="bg-slate-100 font-semibold text-slate-600">
+                          <tr>
+                            <th className="p-2">#</th>
+                            <th className="p-2">Date</th>
+                            <th className="p-2 text-right font-semibold">Amount Paid</th>
+                            <th className="p-2 text-right font-semibold">Running Balance</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paymentModal.payment_history.map((h, i) => (
+                            <tr key={i} className="border-t">
+                              <td className="p-2 text-muted-foreground">{i + 1}</td>
+                              <td className="p-2">
+                                {formatDate(h.date)}
+                                {h.remarks === "Advance Payment" && (
+                                  <span className="ml-1.5 bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded">Advance</span>
+                                )}
+                              </td>
+                              <td className="p-2 text-right font-bold text-green-600">₹{formatInr(h.amount)}</td>
+                              <td className="p-2 text-right font-medium text-slate-700">₹{formatInr(h.remainingBalance || 0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t flex flex-col gap-2 bg-slate-50">
+                <button 
+                  onClick={() => handleSavePaymentWithHistory(false)} 
+                  className="w-full bg-orange-100 text-orange-700 py-3 rounded-xl font-semibold hover:bg-orange-200 transition-colors"
+                >
+                  Save Payment
+                </button>
+                <button 
+                  onClick={() => handleSavePaymentWithHistory(true)} 
+                  className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-sm flex justify-center items-center"
+                >
+                  <CheckCircle2 className="w-5 h-5 mr-2" /> Complete Payment
+                </button>
+                <button 
+                  onClick={() => setPaymentModal(null)} 
+                  className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium mt-1"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Post-Completion Export Prompt */}
       {exportPromptSession && (
@@ -811,14 +919,29 @@ export function SalesPayments() {
                 </div>
               </div>
 
-              <div className="border-t pt-3">
-                <label className="block text-xs font-semibold text-muted-foreground mb-1">Partial Payment / Received (₹)</label>
-                <input 
-                  type="number"
-                  className="w-full border p-2 rounded text-sm font-semibold"
-                  value={editInvoicePartialPayment || ''}
-                  onChange={e => setEditInvoicePartialPayment(Number(e.target.value))}
-                />
+              <div className="border-t pt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">Advance Amount (₹)</label>
+                  <input 
+                    type="number"
+                    step="0.01"
+                    className="w-full border p-2 rounded text-sm font-semibold bg-background"
+                    value={editInvoiceAdvance || ''}
+                    onChange={e => setEditInvoiceAdvance(Number(e.target.value))}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">Additional Paid (₹)</label>
+                  <input 
+                    type="number"
+                    step="0.01"
+                    className="w-full border p-2 rounded text-sm font-semibold bg-background"
+                    value={editInvoicePartialPayment || ''}
+                    onChange={e => setEditInvoicePartialPayment(Number(e.target.value))}
+                    placeholder="0.00"
+                  />
+                </div>
               </div>
 
               <div>
