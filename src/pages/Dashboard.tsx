@@ -57,7 +57,6 @@ export function Dashboard() {
     let monthlyPurchasePayments = 0
     let overallPaymentAmount = 0
     let overallCompletedAmount = 0
-    let overallAdvancePaid = 0
 
     // Group pending/non-completed bills by session_id || id
     const pendingGroups = new Map<string, {
@@ -65,6 +64,7 @@ export function Dashboard() {
       session_id: string;
       grandTotal: number;
       partialPayment: number;
+      advanceSum: number;
       bills: any[];
     }>()
 
@@ -88,23 +88,24 @@ export function Dashboard() {
             session_id: key,
             grandTotal: 0,
             partialPayment: Number(p.session_partial_payment || 0),
+            advanceSum: 0,
             bills: []
           })
         }
         const g = pendingGroups.get(key)!
         g.grandTotal += gTotal
+        g.advanceSum += adv
         g.bills.push(p)
         pendingShopIds.add(p.shop_id)
-
-        // 4. Overall Advance Paid: Sum of advances only for Pending and Partial Payment bills
-        overallAdvancePaid += adv
       }
     })
 
-    // 3. Overall Pending Amount: Remaining balance across non-completed bills
+    // 3. Overall Pending Amount & 4. Overall Advance Paid (Advance + Total Partial Amount Paid for non-completed bills)
     let overallPendingAmount = 0
+    let overallAdvancePaid = 0
     pendingGroups.forEach(g => {
       overallPendingAmount += Math.max(0, g.grandTotal - g.partialPayment)
+      overallAdvancePaid += (g.advanceSum + g.partialPayment)
     })
 
     allPurchases?.forEach(p => {

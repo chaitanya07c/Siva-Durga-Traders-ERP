@@ -48,7 +48,7 @@ export function SalesPayments() {
 
     const { data } = await supabase
       .from('sales')
-      .select('id, date, total_amount, payment_status, buyer_name, partial_payment, payment_date, payment_history')
+      .select('id, date, total_amount, advance, payment_status, buyer_name, partial_payment, payment_date, payment_history')
       .order('date', { ascending: false })
 
     if (data) {
@@ -56,21 +56,32 @@ export function SalesPayments() {
       let pendingSum = 0
       let completedSum = 0
       data.forEach(d => {
-        if (d.payment_status === 'Completed') {
-          completedSum += Number(d.total_amount || 0)
+        const adv = Number(d.advance || 0)
+        const additionalPaid = Number(d.partial_payment || 0)
+        const totalPaid = adv + additionalPaid
+        const grandTotal = Number(d.total_amount || 0)
+        const rem = Math.max(0, grandTotal - totalPaid)
+
+        if (d.payment_status === 'Completed' || rem === 0) {
+          completedSum += grandTotal
         } else {
-          pendingSum += Math.max(0, Number(d.total_amount || 0) - Number(d.partial_payment || 0))
+          pendingSum += rem
         }
       })
       setOverallPending(pendingSum)
       setOverallCompleted(completedSum)
 
       // Filter for active tab display
-      const activeData = data.filter(d => 
-        activeTab === 'Pending' 
-          ? (d.payment_status === 'Pending' || d.payment_status === 'Partial Payment') 
-          : d.payment_status === 'Completed'
-      )
+      const activeData = data.filter(d => {
+        const adv = Number(d.advance || 0)
+        const additionalPaid = Number(d.partial_payment || 0)
+        const totalPaid = adv + additionalPaid
+        const grandTotal = Number(d.total_amount || 0)
+        const rem = Math.max(0, grandTotal - totalPaid)
+        const isComp = d.payment_status === 'Completed' || rem === 0
+
+        return activeTab === 'Pending' ? !isComp : isComp
+      })
 
       // Group by buyer_name
       const groups = new Map<string, GroupedSaleSession>()
@@ -78,6 +89,9 @@ export function SalesPayments() {
       activeData.forEach(d => {
         const rawName = d.buyer_name || 'Unknown Buyer'
         const key = lang === 'te' && buyerMap.has(rawName) ? buyerMap.get(rawName)! : rawName
+        const adv = Number(d.advance || 0)
+        const additionalPaid = Number(d.partial_payment || 0)
+
         if (!groups.has(key)) {
           const initialStatus: 'Pending' | 'Partial Payment' | 'Completed' = (d.payment_status as any) || activeTab
           groups.set(key, {
@@ -86,6 +100,7 @@ export function SalesPayments() {
             date: d.date,
             billsCount: 0,
             overallTotal: 0,
+            advance: 0,
             status: initialStatus,
             bill_ids: [],
             partial_payment: 0,
@@ -97,13 +112,30 @@ export function SalesPayments() {
         const group = groups.get(key)!
         group.billsCount += 1
         group.overallTotal += Number(d.total_amount || 0)
+        group.advance = (group.advance || 0) + adv
         group.bill_ids.push(d.id)
-        group.partial_payment += Number(d.partial_payment || 0)
+        group.partial_payment += additionalPaid
 
         // Consolidate payment history entries
-        if (Array.isArray(d.payment_history)) {
-          group.payment_history = [...(group.payment_history || []), ...d.payment_history]
+        const existingHistory = Array.isArray(d.payment_history) ? [...d.payment_history] : []
+        let hasAdvInHist = false
+        existingHistory.forEach(h => {
+          if (h.remarks === "Advance Payment" || (adv > 0 && h.amount === adv)) {
+            hasAdvInHist = true
+          }
+        })
+
+        if (!hasAdvInHist && adv > 0) {
+          existingHistory.unshift({
+            id: d.id + '_adv',
+            date: d.date,
+            amount: adv,
+            remainingBalance: Math.max(0, Number(d.total_amount || 0) - adv),
+            remarks: "Advance Payment"
+          })
         }
+
+        group.payment_history = [...(group.payment_history || []), ...existingHistory]
         
         if (new Date(d.date) > new Date(group.date)) {
           group.date = d.date
@@ -115,10 +147,11 @@ export function SalesPayments() {
 
       // Recalculate status for each group
       groups.forEach(g => {
-        const rem = Math.max(0, g.overallTotal - g.partial_payment)
+        const totalPaid = (g.advance || 0) + g.partial_payment
+        const rem = Math.max(0, g.overallTotal - totalPaid)
         if (rem === 0 || g.status === 'Completed') {
           g.status = 'Completed'
-        } else if (g.partial_payment > 0) {
+        } else if (totalPaid > 0) {
           g.status = 'Partial Payment'
         } else {
           g.status = 'Pending'
@@ -138,9 +171,11 @@ export function SalesPayments() {
     if (!paymentModal) return
     try {
       const today = new Date().toISOString().split('T')[0]
-      const currentPaid = Number(paymentModal.partial_payment || 0)
+      const groupAdv = Number(paymentModal.advance || 0)
+      const groupAddPaid = Number(paymentModal.partial_payment || 0)
+      const currentTotalPaid = groupAdv + groupAddPaid
       const overallTotal = Number(paymentModal.overallTotal || 0)
-      const remainingBefore = Math.max(0, overallTotal - currentPaid)
+      const remainingBefore = Math.max(0, overallTotal - currentTotalPaid)
 
       let newAmountToPay = isFinalComplete ? remainingBefore : Number(paymentInputAmount || 0)
       if (newAmountToPay <= 0 && !isFinalComplete) {
@@ -151,7 +186,8 @@ export function SalesPayments() {
         newAmountToPay = remainingBefore
       }
 
-      const newTotalPaid = Math.min(overallTotal, currentPaid + newAmountToPay)
+      const newTotalAdditional = groupAddPaid + newAmountToPay
+      const newTotalPaid = Math.min(overallTotal, groupAdv + newTotalAdditional)
       const newRemainingBalance = Math.max(0, overallTotal - newTotalPaid)
 
       let newStatus: 'Pending' | 'Partial Payment' | 'Completed' = 'Pending'
@@ -164,7 +200,7 @@ export function SalesPayments() {
       // Fetch current bills to update individual partial_payment and payment_history
       const { data: currentBills } = await supabase
         .from('sales')
-        .select('id, total_amount, partial_payment, payment_history')
+        .select('id, total_amount, advance, partial_payment, payment_history')
         .in('id', paymentModal.bill_ids)
 
       if (currentBills && currentBills.length > 0) {
@@ -172,11 +208,26 @@ export function SalesPayments() {
 
         for (const bill of currentBills) {
           const billTotal = Number(bill.total_amount || 0)
-          const billOldPaid = Number(bill.partial_payment || 0)
-          const billNewPaid = Math.min(billTotal, billOldPaid + perBillPaymentShare)
-          const billRem = Math.max(0, billTotal - billNewPaid)
+          const billAdv = Number(bill.advance || 0)
+          const billOldAdditional = Number(bill.partial_payment || 0)
+          const billNewAdditional = billOldAdditional + perBillPaymentShare
+          const billTotalPaid = Math.min(billTotal, billAdv + billNewAdditional)
+          const billRem = Math.max(0, billTotal - billTotalPaid)
 
-          const existingHistory = Array.isArray(bill.payment_history) ? bill.payment_history : []
+          const existingHistory = Array.isArray(bill.payment_history) ? [...bill.payment_history] : []
+          if (billAdv > 0) {
+            let hasAdv = existingHistory.some(h => h.remarks === "Advance Payment" || h.amount === billAdv)
+            if (!hasAdv) {
+              existingHistory.unshift({
+                id: bill.id + '_adv',
+                date: today,
+                amount: billAdv,
+                remainingBalance: Math.max(0, billTotal - billAdv),
+                remarks: "Advance Payment"
+              })
+            }
+          }
+
           const newEntry = {
             id: crypto.randomUUID(),
             date: today,
@@ -187,7 +238,7 @@ export function SalesPayments() {
           const updatedHistory = [...existingHistory, newEntry]
 
           await supabase.from('sales').update({
-            partial_payment: billNewPaid,
+            partial_payment: billNewAdditional,
             payment_status: newStatus,
             payment_date: today,
             payment_history: updatedHistory
@@ -199,7 +250,7 @@ export function SalesPayments() {
       
       const sessionToExport: GroupedSaleSession = { 
         ...paymentModal, 
-        partial_payment: newTotalPaid, 
+        partial_payment: newTotalAdditional, 
         payment_date: today, 
         status: newStatus 
       }
@@ -588,18 +639,22 @@ export function SalesPayments() {
             </div>
             
             <div className="p-6 space-y-5 overflow-y-auto flex-1">
-              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border text-center">
                 <div>
                   <p className="text-xs text-muted-foreground font-medium">{t("overallTotal", lang)}</p>
-                  <p className="text-lg font-bold text-slate-800">₹{formatInr(paymentModal.overallTotal)}</p>
+                  <p className="text-base font-bold text-slate-800">₹{formatInr(paymentModal.overallTotal)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground font-medium">{t("partialPaid", lang)}</p>
-                  <p className="text-lg font-bold text-green-600">₹{formatInr(paymentModal.partial_payment)}</p>
+                  <p className="text-xs text-muted-foreground font-medium">{t("advance", lang)}</p>
+                  <p className="text-base font-bold text-purple-600">₹{formatInr(paymentModal.advance || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-medium">{t("amountPaid", lang)}</p>
+                  <p className="text-base font-bold text-green-600">₹{formatInr((paymentModal.advance || 0) + paymentModal.partial_payment)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground font-medium">{t("balanceAmount", lang)}</p>
-                  <p className="text-lg font-bold text-red-600">₹{formatInr(Math.max(0, paymentModal.overallTotal - paymentModal.partial_payment))}</p>
+                  <p className="text-base font-bold text-red-600">₹{formatInr(Math.max(0, paymentModal.overallTotal - ((paymentModal.advance || 0) + paymentModal.partial_payment)))}</p>
                 </div>
               </div>
               
@@ -610,7 +665,7 @@ export function SalesPayments() {
                   className="w-full border p-3 rounded-lg text-lg font-semibold bg-background"
                   value={paymentInputAmount || ''}
                   onChange={e => setPaymentInputAmount(Number(e.target.value))}
-                  placeholder={`Max ₹${formatInr(Math.max(0, paymentModal.overallTotal - paymentModal.partial_payment))}`}
+                  placeholder={`Max ₹${formatInr(Math.max(0, paymentModal.overallTotal - ((paymentModal.advance || 0) + paymentModal.partial_payment)))}`}
                 />
               </div>
 
@@ -632,7 +687,12 @@ export function SalesPayments() {
                         {paymentModal.payment_history.map((h, i) => (
                           <tr key={i} className="border-t">
                             <td className="p-2 text-muted-foreground">{i + 1}</td>
-                            <td className="p-2">{formatDate(h.date)}</td>
+                            <td className="p-2">
+                              {formatDate(h.date)}
+                              {h.remarks === "Advance Payment" && (
+                                <span className="ml-1.5 bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded">Advance</span>
+                              )}
+                            </td>
                             <td className="p-2 text-right font-bold text-green-600">₹{formatInr(h.amount)}</td>
                             <td className="p-2 text-right font-medium text-slate-700">₹{formatInr(h.remainingBalance || 0)}</td>
                           </tr>

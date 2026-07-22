@@ -37,6 +37,7 @@ export function Sales() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [factoryName, setFactoryName] = useState("")
   const [remarks, setRemarks] = useState("")
+  const [advance, setAdvance] = useState<number>(0)
 
   const [loading, setLoading] = useState(false)
   const [savedSaleId, setSavedSaleId] = useState<string | null>(null)
@@ -157,6 +158,19 @@ export function Sales() {
       const itemsJson = itemsToSave.reduce((acc, curr) => ({ ...acc, [curr.name]: curr }), {})
 
       const invoiceNumber = `INV-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`;
+      const advanceVal = Number(advance || 0)
+
+      const initialStatus = (advanceVal >= grandTotal) 
+        ? 'Completed' 
+        : (advanceVal > 0 ? 'Partial Payment' : 'Pending')
+
+      const initialHistory = advanceVal > 0 ? [{
+        id: crypto.randomUUID(),
+        date: date,
+        amount: advanceVal,
+        remainingBalance: Math.max(0, grandTotal - advanceVal),
+        remarks: "Advance Payment"
+      }] : []
 
       const { data: saleData, error: saleError } = await supabase
         .from('sales')
@@ -164,7 +178,10 @@ export function Sales() {
           date,
           buyer_name: factoryName,
           total_amount: grandTotal,
-          payment_status: 'Pending',
+          advance: advanceVal,
+          payment_status: initialStatus,
+          partial_payment: 0,
+          payment_history: initialHistory,
           remarks,
           items: itemsJson,
           invoice_number: invoiceNumber
@@ -187,6 +204,7 @@ export function Sales() {
   const resetFormForAnotherBill = () => {
     setSelectedItems([])
     setRemarks("")
+    setAdvance(0)
     setSavedSaleId(null)
   }
 
@@ -369,6 +387,18 @@ export function Sales() {
               <div className="flex justify-between items-center text-sm font-bold">
                 <span>Total Quantity:</span>
                 <span className="text-primary">{totalQuantity} Units</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="font-semibold text-slate-700">Advance (₹):</span>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  className="w-32 border p-1 rounded text-sm text-right font-bold bg-background"
+                  value={advance || ''}
+                  onChange={e => setAdvance(Number(e.target.value))}
+                  disabled={!!savedSaleId}
+                  placeholder="0.00"
+                />
               </div>
               <div className="border-t my-2 pt-2"></div>
               <div className="flex justify-between items-center text-lg font-bold">

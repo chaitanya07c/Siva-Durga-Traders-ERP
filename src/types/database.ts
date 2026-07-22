@@ -70,6 +70,7 @@ export type Sale = {
   buyer_name: string | null
   invoice_number: string | null
   total_amount: number
+  advance?: number
   items?: Record<string, any>
   payment_status: string
   partial_payment: number

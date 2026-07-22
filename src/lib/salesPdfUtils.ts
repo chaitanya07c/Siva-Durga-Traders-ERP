@@ -11,11 +11,12 @@ export type GroupedSaleSession = {
   date: string
   billsCount: number
   overallTotal: number
+  advance?: number
   status: 'Pending' | 'Partial Payment' | 'Completed'
   bill_ids: string[]
   partial_payment: number
   payment_date?: string | null
-  payment_history?: { date: string, amount: number, remainingBalance?: number }[]
+  payment_history?: { date: string, amount: number, remainingBalance?: number, remarks?: string }[]
 }
 
 export type SalesBillBreakdown = {
@@ -24,10 +25,11 @@ export type SalesBillBreakdown = {
   date: string
   items: { name: string, quantity: number, rate: number, total: number }[]
   grandTotal: number
+  advance?: number
   remarks?: string | null
   partial_payment?: number
   payment_date?: string | null
-  payment_history?: { date: string, amount: number, remainingBalance?: number }[]
+  payment_history?: { date: string, amount: number, remainingBalance?: number, remarks?: string }[]
 }
 
 export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang?: 'en' | 'te'): Promise<SalesBillBreakdown[]> => {
@@ -52,6 +54,7 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
       date: fb.date,
       items: formattedItems,
       grandTotal: fb.total_amount,
+      advance: fb.advance || 0,
       remarks: fb.remarks,
       partial_payment: fb.partial_payment,
       payment_date: fb.payment_date,
@@ -77,34 +80,50 @@ export const generateSalesCombinedPDF = async (
       bills = await fetchSalesBillBreakdowns(session, lang)
     }
     
-    const partialPayment = session.partial_payment || 0
-    const balance = Math.max(0, session.overallTotal - partialPayment)
+    const totalAdvance = session.advance !== undefined ? session.advance : bills.reduce((sum, b) => sum + (b.advance || 0), 0)
+    const additionalPayments = session.partial_payment || 0
+    const totalPaid = totalAdvance + additionalPayments
+    const balance = Math.max(0, session.overallTotal - totalPaid)
 
     let paymentStatus = "Pending"
     if (session.status === 'Completed' || balance === 0) {
       paymentStatus = "Completed"
-    } else if (partialPayment > 0) {
+    } else if (totalPaid > 0) {
       paymentStatus = "Partial Paid"
     }
 
     // Consolidate payment history from bills
-    const historyList: { date: string, amount: number }[] = []
+    const historyList: { date: string, amount: number, remarks?: string }[] = []
     bills.forEach(b => {
+      let hasAdvanceInHistory = false
       if (Array.isArray(b.payment_history) && b.payment_history.length > 0) {
         b.payment_history.forEach(h => {
           if (h.amount > 0 && h.date) {
-            historyList.push({ date: h.date, amount: h.amount })
+            if (h.remarks === "Advance Payment" || (b.advance && h.amount === b.advance)) {
+              hasAdvanceInHistory = true
+            }
+            historyList.push({ date: h.date, amount: h.amount, remarks: h.remarks })
           }
+        })
+      }
+
+      if (!hasAdvanceInHistory && b.advance && b.advance > 0) {
+        historyList.unshift({
+          date: b.date,
+          amount: b.advance,
+          remarks: "Advance Payment"
         })
       }
     })
 
-    // Fallback if payment history array was not present but partial payment was made
-    if (historyList.length === 0 && partialPayment > 0) {
-      historyList.push({
-        date: session.payment_date || session.date,
-        amount: partialPayment
-      })
+    // Fallback if payment history array was not present but additional payment was made
+    if (historyList.length === 0 && totalPaid > 0) {
+      if (totalAdvance > 0) {
+        historyList.push({ date: session.date, amount: totalAdvance, remarks: "Advance Payment" })
+      }
+      if (additionalPayments > 0) {
+        historyList.push({ date: session.payment_date || session.date, amount: additionalPayments })
+      }
     }
 
     // Sort ascending by date
@@ -141,8 +160,9 @@ export const generateSalesCombinedPDF = async (
       }),
       paymentSummary: {
         overallAmount: session.overallTotal || 0,
+        advanceAmount: totalAdvance,
         balanceAmount: balance,
-        partialPaid: partialPayment,
+        partialPaid: totalPaid,
         status: paymentStatus,
         paymentHistory: sortedHistory
       }

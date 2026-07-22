@@ -25,10 +25,11 @@ export type PDFDocumentData = {
   bills: PDFBillData[]
   paymentSummary: {
     overallAmount: number
+    advanceAmount?: number
     balanceAmount: number
     partialPaid: number
     status: string
-    paymentHistory?: { date: string, amount: number }[]
+    paymentHistory?: { date: string, amount: number, remarks?: string }[]
   }
   filename: string
 }

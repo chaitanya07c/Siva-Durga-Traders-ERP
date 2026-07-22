@@ -63,13 +63,13 @@ export function Payments() {
     if (data) {
       // Calculate overall pending, completed amounts, and active advance given
       let completedSum = 0
-      let activeAdvanceSum = 0
       
       const pendingGroups = new Map<string, {
         shopName: string;
         session_id: string;
         grandTotal: number;
         partialPayment: number;
+        advanceSum: number;
         bills: any[];
       }>()
 
@@ -78,7 +78,6 @@ export function Payments() {
           completedSum += Number(d.grand_total || 0)
         } else {
           // Pending or Partial Payment
-          activeAdvanceSum += Number(d.advance || 0)
           const key = d.session_id || d.id
           const shopName = (d.shops as any)?.name || 'Unknown'
           if (!pendingGroups.has(key)) {
@@ -87,18 +86,23 @@ export function Payments() {
               session_id: key,
               grandTotal: 0,
               partialPayment: Number(d.session_partial_payment || 0),
+              advanceSum: 0,
               bills: []
             })
           }
           const g = pendingGroups.get(key)!
           g.grandTotal += Number(d.grand_total || 0)
+          g.advanceSum += Number(d.advance || 0)
           g.bills.push(d)
         }
       })
 
       let pendingSum = 0
+      let activeAdvanceSum = 0
+
       pendingGroups.forEach(g => {
         pendingSum += Math.max(0, g.grandTotal - g.partialPayment)
+        activeAdvanceSum += (g.advanceSum + g.partialPayment)
       })
 
       setOverallPending(pendingSum)
