@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { IndianRupee, Store, CreditCard, Users, Calendar } from "lucide-react"
+import { IndianRupee, Store, CreditCard, Users, Calendar, Wallet } from "lucide-react"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 
@@ -20,7 +20,11 @@ export function Dashboard() {
     monthlyPurchasePayments: 0,
     monthlyWorkerSalary: 0,
     monthlyExpenses: 0,
-    monthlyNetProfit: 0
+    monthlyNetProfit: 0,
+    overallPaymentAmount: 0,
+    overallCompletedAmount: 0,
+    overallPendingAmount: 0,
+    overallAdvancePaid: 0
   })
 
   useEffect(() => {
@@ -44,15 +48,18 @@ export function Dashboard() {
     const { data: sales } = await supabase.from('sales').select('total_amount').eq('date', today)
     const todaysSales = sales?.reduce((sum, s) => sum + Number(s.total_amount), 0) || 0
 
-    // Load ALL purchases to calculate overallPending and pendingShopsCount, and monthlyPurchasePayments
+    // Load ALL purchases to calculate overall metrics, pendingShopsCount, and monthlyPurchasePayments
     const { data: allPurchases } = await supabase
       .from('purchases')
-      .select('id, session_id, grand_total, payment_status, session_partial_payment, payment_date, date, shop_id, shops(name)')
+      .select('id, session_id, grand_total, advance, payment_status, session_partial_payment, payment_date, date, shop_id, shops(name)')
     
     const pendingShopIds = new Set<string>()
     let monthlyPurchasePayments = 0
+    let overallPaymentAmount = 0
+    let overallCompletedAmount = 0
+    let overallAdvancePaid = 0
 
-    // Group pending bills by session_id || id
+    // Group pending/non-completed bills by session_id || id
     const pendingGroups = new Map<string, {
       shopName: string;
       session_id: string;
@@ -62,7 +69,17 @@ export function Dashboard() {
     }>()
 
     allPurchases?.forEach(p => {
-      if (p.payment_status === 'Pending') {
+      const gTotal = Number(p.grand_total || 0)
+      const adv = Number(p.advance || 0)
+
+      // 1. Overall Payment Amount: Total value of all purchase bills generated regardless of payment status
+      overallPaymentAmount += gTotal
+
+      if (p.payment_status === 'Completed') {
+        // 2. Overall Completed Amount: Total amount of bills that are fully paid
+        overallCompletedAmount += gTotal
+      } else {
+        // Active non-completed bills (Pending or Partial Payment)
         const key = p.session_id || p.id
         const shopName = (p.shops as any)?.name || 'Unknown'
         if (!pendingGroups.has(key)) {
@@ -75,18 +92,20 @@ export function Dashboard() {
           })
         }
         const g = pendingGroups.get(key)!
-        g.grandTotal += Number(p.grand_total || 0)
+        g.grandTotal += gTotal
         g.bills.push(p)
         pendingShopIds.add(p.shop_id)
+
+        // 4. Overall Advance Paid: Sum of advances only for Pending and Partial Payment bills
+        overallAdvancePaid += adv
       }
     })
 
-    let overallPending = 0
+    // 3. Overall Pending Amount: Remaining balance across non-completed bills
+    let overallPendingAmount = 0
     pendingGroups.forEach(g => {
-      overallPending += Math.max(0, g.grandTotal - g.partialPayment)
+      overallPendingAmount += Math.max(0, g.grandTotal - g.partialPayment)
     })
-
-
 
     allPurchases?.forEach(p => {
       // Cash flow Purchase Payments in current month
@@ -163,13 +182,17 @@ export function Dashboard() {
       todaysPurchase,
       todaysSales,
       totalShops: shopCount || 0,
-      overallPending,
+      overallPending: overallPendingAmount,
       pendingShopsCount: pendingShopIds.size,
       monthlySalesPayments,
       monthlyPurchasePayments,
       monthlyWorkerSalary,
       monthlyExpenses,
-      monthlyNetProfit
+      monthlyNetProfit,
+      overallPaymentAmount,
+      overallCompletedAmount,
+      overallPendingAmount,
+      overallAdvancePaid
     })
   }
 
@@ -216,42 +239,74 @@ export function Dashboard() {
         })}
       </div>
 
-      {/* Monthly Profit/Loss Card */}
-      <div className="max-w-md bg-card border rounded-2xl shadow-md overflow-hidden">
-        <div className="bg-muted px-6 py-4 border-b flex justify-between items-center">
-          <div className="flex items-center space-x-2">
-            <Calendar className="w-5 h-5 text-muted-foreground" />
+      {/* Payment History & Monthly Profit/Loss Section Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
+        {/* Payment History Card */}
+        <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
+          <div className="bg-muted px-6 py-4 border-b flex items-center space-x-2">
+            <Wallet className="w-5 h-5 text-muted-foreground" />
             <span className="font-bold text-sm text-foreground uppercase tracking-wider">
-              {lang === 'te' ? "ఈ నెల లాభ నష్టాల నివేదిక" : "Monthly Profit / Loss"}
+              {t("paymentHistorySection", lang)}
             </span>
           </div>
-          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isProfit ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-            {isProfit ? (lang === 'te' ? 'లాభం' : 'Profit') : (lang === 'te' ? 'నష్టం' : 'Loss')}
-          </span>
+          <div className="p-6 space-y-4">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{t("overallPaymentAmount", lang)}</span>
+              <span className="font-semibold text-foreground">₹{formatInr(stats.overallPaymentAmount)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{t("overallCompletedAmount", lang)}</span>
+              <span className="font-semibold text-green-600">₹{formatInr(stats.overallCompletedAmount)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{t("overallPendingAmount", lang)}</span>
+              <span className="font-semibold text-orange-500">₹{formatInr(stats.overallPendingAmount)}</span>
+            </div>
+            <div className="h-px bg-slate-200 dark:bg-slate-800 pt-1"></div>
+            <div className="flex justify-between items-center text-sm pt-1">
+              <span className="text-muted-foreground font-medium">{t("overallAdvancePaid", lang)}</span>
+              <span className="font-semibold text-purple-600">₹{formatInr(stats.overallAdvancePaid)}</span>
+            </div>
+          </div>
         </div>
-        <div className="p-6 space-y-4">
-          <div className="flex justify-between items-center text-sm">
-            <span className="text-muted-foreground font-medium">{lang === 'te' ? "మొత్తం అమ్మకాల చెల్లింపులు" : "Total Sales Payments"}</span>
-            <span className="font-semibold text-green-600">₹{formatInr(stats.monthlySalesPayments)}</span>
-          </div>
-          <div className="flex justify-between items-center text-sm">
-            <span className="text-muted-foreground font-medium">{lang === 'te' ? "కొనుగోలు చెల్లింపులు" : "Purchase Payments"}</span>
-            <span className="font-semibold text-red-500">₹{formatInr(stats.monthlyPurchasePayments)}</span>
-          </div>
-          <div className="flex justify-between items-center text-sm">
-            <span className="text-muted-foreground font-medium">{lang === 'te' ? "సిబ్బంది జీతాలు" : "Worker Salary"}</span>
-            <span className="font-semibold text-slate-700">₹{formatInr(stats.monthlyWorkerSalary)}</span>
-          </div>
-          <div className="flex justify-between items-center text-sm">
-            <span className="text-muted-foreground font-medium">{lang === 'te' ? "ఖర్చులు" : "Expenses"}</span>
-            <span className="font-semibold text-slate-700">₹{formatInr(stats.monthlyExpenses)}</span>
-          </div>
-          <div className="h-px bg-slate-200 pt-1"></div>
-          <div className="flex justify-between items-center pt-2">
-            <span className="font-bold text-base text-foreground">{lang === 'te' ? "నికర లాభం / నష్టం" : "Net Profit/Loss"}</span>
-            <span className={`text-lg font-extrabold ${isProfit ? 'text-green-600 animate-pulse' : 'text-red-600'}`}>
-              ₹{formatInr(stats.monthlyNetProfit)}
+
+        {/* Monthly Profit/Loss Card */}
+        <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
+          <div className="bg-muted px-6 py-4 border-b flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              <Calendar className="w-5 h-5 text-muted-foreground" />
+              <span className="font-bold text-sm text-foreground uppercase tracking-wider">
+                {lang === 'te' ? "ఈ నెల లాభ నష్టాల నివేదిక" : "Monthly Profit / Loss"}
+              </span>
+            </div>
+            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isProfit ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              {isProfit ? (lang === 'te' ? 'లాభం' : 'Profit') : (lang === 'te' ? 'నష్టం' : 'Loss')}
             </span>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{lang === 'te' ? "మొత్తం అమ్మకాల చెల్లింపులు" : "Total Sales Payments"}</span>
+              <span className="font-semibold text-green-600">₹{formatInr(stats.monthlySalesPayments)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{lang === 'te' ? "కొనుగోలు చెల్లింపులు" : "Purchase Payments"}</span>
+              <span className="font-semibold text-red-500">₹{formatInr(stats.monthlyPurchasePayments)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{lang === 'te' ? "సిబ్బంది జీతాలు" : "Worker Salary"}</span>
+              <span className="font-semibold text-slate-700">₹{formatInr(stats.monthlyWorkerSalary)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{lang === 'te' ? "ఖర్చులు" : "Expenses"}</span>
+              <span className="font-semibold text-slate-700">₹{formatInr(stats.monthlyExpenses)}</span>
+            </div>
+            <div className="h-px bg-slate-200 dark:bg-slate-800 pt-1"></div>
+            <div className="flex justify-between items-center pt-2">
+              <span className="font-bold text-base text-foreground">{lang === 'te' ? "నికర లాభం / నష్టం" : "Net Profit/Loss"}</span>
+              <span className={`text-lg font-extrabold ${isProfit ? 'text-green-600 animate-pulse' : 'text-red-600'}`}>
+                ₹{formatInr(stats.monthlyNetProfit)}
+              </span>
+            </div>
           </div>
         </div>
       </div>

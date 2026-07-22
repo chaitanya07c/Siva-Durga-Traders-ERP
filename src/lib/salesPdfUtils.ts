@@ -11,10 +11,11 @@ export type GroupedSaleSession = {
   date: string
   billsCount: number
   overallTotal: number
-  status: 'Pending' | 'Completed'
+  status: 'Pending' | 'Partial Payment' | 'Completed'
   bill_ids: string[]
   partial_payment: number
   payment_date?: string | null
+  payment_history?: { date: string, amount: number, remainingBalance?: number }[]
 }
 
 export type SalesBillBreakdown = {
@@ -25,6 +26,8 @@ export type SalesBillBreakdown = {
   grandTotal: number
   remarks?: string | null
   partial_payment?: number
+  payment_date?: string | null
+  payment_history?: { date: string, amount: number, remainingBalance?: number }[]
 }
 
 export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang?: 'en' | 'te'): Promise<SalesBillBreakdown[]> => {
@@ -50,7 +53,9 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
       items: formattedItems,
       grandTotal: fb.total_amount,
       remarks: fb.remarks,
-      partial_payment: fb.partial_payment
+      partial_payment: fb.partial_payment,
+      payment_date: fb.payment_date,
+      payment_history: fb.payment_history || []
     }
   }) || []
 
@@ -73,7 +78,7 @@ export const generateSalesCombinedPDF = async (
     }
     
     const partialPayment = session.partial_payment || 0
-    const balance = session.overallTotal - partialPayment
+    const balance = Math.max(0, session.overallTotal - partialPayment)
 
     let paymentStatus = "Pending"
     if (session.status === 'Completed' || balance === 0) {
@@ -81,6 +86,29 @@ export const generateSalesCombinedPDF = async (
     } else if (partialPayment > 0) {
       paymentStatus = "Partial Paid"
     }
+
+    // Consolidate payment history from bills
+    const historyList: { date: string, amount: number }[] = []
+    bills.forEach(b => {
+      if (Array.isArray(b.payment_history) && b.payment_history.length > 0) {
+        b.payment_history.forEach(h => {
+          if (h.amount > 0 && h.date) {
+            historyList.push({ date: h.date, amount: h.amount })
+          }
+        })
+      }
+    })
+
+    // Fallback if payment history array was not present but partial payment was made
+    if (historyList.length === 0 && partialPayment > 0) {
+      historyList.push({
+        date: session.payment_date || session.date,
+        amount: partialPayment
+      })
+    }
+
+    // Sort ascending by date
+    const sortedHistory = historyList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
     const documentData: PDFDocumentData = {
       title: "SALES INVOICE",
@@ -115,7 +143,8 @@ export const generateSalesCombinedPDF = async (
         overallAmount: session.overallTotal || 0,
         balanceAmount: balance,
         partialPaid: partialPayment,
-        status: paymentStatus
+        status: paymentStatus,
+        paymentHistory: sortedHistory
       }
     }
 

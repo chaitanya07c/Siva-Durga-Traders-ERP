@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search } from "lucide-react"
+import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet } from "lucide-react"
 import { toast } from "sonner"
 import { 
   fetchBillBreakdowns, 
@@ -28,6 +28,7 @@ export function Payments() {
   const [searchQuery, setSearchQuery] = useState("")
   const [overallPending, setOverallPending] = useState(0)
   const [overallCompleted, setOverallCompleted] = useState(0)
+  const [overallAdvance, setOverallAdvance] = useState(0)
 
   const [shops, setShops] = useState<Shop[]>([])
   const [detailsModal, setDetailsModal] = useState<{ session: GroupedSession, bills: BillBreakdown[] } | null>(null)
@@ -56,12 +57,13 @@ export function Payments() {
   const loadSessions = async () => {
     const { data } = await supabase
       .from('purchases')
-      .select('id, date, grand_total, payment_status, shop_id, shops(name, name_te, type), session_id, session_partial_payment, payment_date')
+      .select('id, date, grand_total, advance, payment_status, shop_id, shops(name, name_te, type), session_id, session_partial_payment, payment_date')
       .order('date', { ascending: false })
 
     if (data) {
-      // Calculate overall pending and completed amounts
+      // Calculate overall pending, completed amounts, and active advance given
       let completedSum = 0
+      let activeAdvanceSum = 0
       
       const pendingGroups = new Map<string, {
         shopName: string;
@@ -72,7 +74,11 @@ export function Payments() {
       }>()
 
       data.forEach(d => {
-        if (d.payment_status === 'Pending') {
+        if (d.payment_status === 'Completed') {
+          completedSum += Number(d.grand_total || 0)
+        } else {
+          // Pending or Partial Payment
+          activeAdvanceSum += Number(d.advance || 0)
           const key = d.session_id || d.id
           const shopName = (d.shops as any)?.name || 'Unknown'
           if (!pendingGroups.has(key)) {
@@ -87,8 +93,6 @@ export function Payments() {
           const g = pendingGroups.get(key)!
           g.grandTotal += Number(d.grand_total || 0)
           g.bills.push(d)
-        } else if (d.payment_status === 'Completed') {
-          completedSum += Number(d.grand_total || 0)
         }
       })
 
@@ -97,13 +101,16 @@ export function Payments() {
         pendingSum += Math.max(0, g.grandTotal - g.partialPayment)
       })
 
-
-
       setOverallPending(pendingSum)
       setOverallCompleted(completedSum)
+      setOverallAdvance(activeAdvanceSum)
 
       // Filter for active tab display
-      const activeData = data.filter(d => d.payment_status === activeTab)
+      const activeData = data.filter(d => 
+        activeTab === 'Pending' 
+          ? (d.payment_status === 'Pending' || d.payment_status === 'Partial Payment') 
+          : d.payment_status === 'Completed'
+      )
 
       // Group by session_id
       const groups = new Map<string, GroupedSession>()
@@ -259,7 +266,12 @@ export function Payments() {
     if (!paymentModal) return
     try {
       const today = new Date().toISOString().split('T')[0]
+      const newStatus = (partialPayment >= paymentModal.overallTotal) 
+        ? 'Completed' 
+        : (partialPayment > 0 ? 'Partial Payment' : 'Pending')
+
       await supabase.from('purchases').update({ 
+        payment_status: newStatus,
         session_partial_payment: partialPayment, 
         payment_date: today 
       }).in('id', paymentModal.bill_ids)
@@ -495,7 +507,7 @@ export function Payments() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Pending Card */}
         <div className="bg-card p-6 rounded-xl border shadow-sm flex items-center space-x-4">
           <div className="p-3 rounded-lg bg-orange-100 dark:bg-orange-950">
@@ -522,6 +534,21 @@ export function Payments() {
             </p>
             <h3 className="text-2xl font-bold text-foreground mt-1">
               ₹{formatInr(overallCompleted)}
+            </h3>
+          </div>
+        </div>
+
+        {/* Overall Advance Given Card */}
+        <div className="bg-card p-6 rounded-xl border shadow-sm flex items-center space-x-4">
+          <div className="p-3 rounded-lg bg-purple-100 dark:bg-purple-950">
+            <Wallet className="w-6 h-6 text-purple-500" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">
+              {t("overallAdvanceGiven", lang)}
+            </p>
+            <h3 className="text-2xl font-bold text-foreground mt-1">
+              ₹{formatInr(overallAdvance)}
             </h3>
           </div>
         </div>

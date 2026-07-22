@@ -29,6 +29,14 @@ export type Material = {
   created_at: string
 }
 
+export type PaymentHistoryEntry = {
+  id?: string
+  date: string
+  amount: number
+  remainingBalance?: number
+  remarks?: string | null
+}
+
 export type Purchase = {
   id: string
   bill_number: number
@@ -42,6 +50,7 @@ export type Purchase = {
   session_id: string
   session_partial_payment: number
   payment_date: string | null
+  payment_history?: PaymentHistoryEntry[] | null
   created_at: string
 }
 
@@ -65,6 +74,7 @@ export type Sale = {
   payment_status: string
   partial_payment: number
   payment_date: string | null
+  payment_history?: PaymentHistoryEntry[] | null
   remarks: string | null
   created_at: string
 }

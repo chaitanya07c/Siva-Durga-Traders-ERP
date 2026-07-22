@@ -21,16 +21,17 @@ export function SalesPayments() {
   const [detailsModal, setDetailsModal] = useState<{ session: GroupedSaleSession, bills: SalesBillBreakdown[] } | null>(null)
   
   const [paymentModal, setPaymentModal] = useState<GroupedSaleSession | null>(null)
-  const [partialPayment, setPartialPayment] = useState<number>(0)
   const [exportPromptSession, setExportPromptSession] = useState<GroupedSaleSession | null>(null)
   const [salesGroupExportPrompt, setSalesGroupExportPrompt] = useState<{ session: GroupedSaleSession, label: string } | null>(null)
-  
+
   // Edit Invoice states
   const [editingInvoice, setEditingInvoice] = useState<SalesBillBreakdown | null>(null)
   const [editInvoiceDate, setEditInvoiceDate] = useState("")
   const [editInvoiceRemarks, setEditInvoiceRemarks] = useState("")
   const [editInvoicePartialPayment, setEditInvoicePartialPayment] = useState(0)
   const [editInvoiceItems, setEditInvoiceItems] = useState<{ name: string, quantity: number, rate: number, total: number }[]>([])
+
+  const [paymentInputAmount, setPaymentInputAmount] = useState<number>(0)
 
   useEffect(() => {
     loadSessions()
@@ -47,7 +48,7 @@ export function SalesPayments() {
 
     const { data } = await supabase
       .from('sales')
-      .select('id, date, total_amount, payment_status, buyer_name, partial_payment, payment_date')
+      .select('id, date, total_amount, payment_status, buyer_name, partial_payment, payment_date, payment_history')
       .order('date', { ascending: false })
 
     if (data) {
@@ -55,17 +56,21 @@ export function SalesPayments() {
       let pendingSum = 0
       let completedSum = 0
       data.forEach(d => {
-        if (d.payment_status === 'Pending') {
-          pendingSum += (d.total_amount - (d.partial_payment || 0))
-        } else if (d.payment_status === 'Completed') {
-          completedSum += d.total_amount
+        if (d.payment_status === 'Completed') {
+          completedSum += Number(d.total_amount || 0)
+        } else {
+          pendingSum += Math.max(0, Number(d.total_amount || 0) - Number(d.partial_payment || 0))
         }
       })
       setOverallPending(pendingSum)
       setOverallCompleted(completedSum)
 
       // Filter for active tab display
-      const activeData = data.filter(d => d.payment_status === activeTab)
+      const activeData = data.filter(d => 
+        activeTab === 'Pending' 
+          ? (d.payment_status === 'Pending' || d.payment_status === 'Partial Payment') 
+          : d.payment_status === 'Completed'
+      )
 
       // Group by buyer_name
       const groups = new Map<string, GroupedSaleSession>()
@@ -74,32 +79,49 @@ export function SalesPayments() {
         const rawName = d.buyer_name || 'Unknown Buyer'
         const key = lang === 'te' && buyerMap.has(rawName) ? buyerMap.get(rawName)! : rawName
         if (!groups.has(key)) {
+          const initialStatus: 'Pending' | 'Partial Payment' | 'Completed' = (d.payment_status as any) || activeTab
           groups.set(key, {
             id: key,
             buyer_name: key,
-            date: d.date, // Will keep the latest date
+            date: d.date,
             billsCount: 0,
             overallTotal: 0,
-            status: activeTab,
+            status: initialStatus,
             bill_ids: [],
             partial_payment: 0,
-            payment_date: d.payment_date
+            payment_date: d.payment_date,
+            payment_history: []
           })
         }
         
         const group = groups.get(key)!
         group.billsCount += 1
-        group.overallTotal += d.total_amount
+        group.overallTotal += Number(d.total_amount || 0)
         group.bill_ids.push(d.id)
-        // For partial payments on pending, we aggregate them or just take the max/sum. Since this is grouped by buyer, we sum partial payments across invoices.
-        group.partial_payment += (d.partial_payment || 0)
+        group.partial_payment += Number(d.partial_payment || 0)
+
+        // Consolidate payment history entries
+        if (Array.isArray(d.payment_history)) {
+          group.payment_history = [...(group.payment_history || []), ...d.payment_history]
+        }
         
-        // Keep latest date
         if (new Date(d.date) > new Date(group.date)) {
           group.date = d.date
         }
         if (d.payment_date && (!group.payment_date || new Date(d.payment_date) > new Date(group.payment_date))) {
           group.payment_date = d.payment_date
+        }
+      })
+
+      // Recalculate status for each group
+      groups.forEach(g => {
+        const rem = Math.max(0, g.overallTotal - g.partial_payment)
+        if (rem === 0 || g.status === 'Completed') {
+          g.status = 'Completed'
+        } else if (g.partial_payment > 0) {
+          g.status = 'Partial Payment'
+        } else {
+          g.status = 'Pending'
         }
       })
 
@@ -109,46 +131,89 @@ export function SalesPayments() {
 
   const handleCompletePaymentInitiate = (session: GroupedSaleSession) => {
     setPaymentModal(session)
-    setPartialPayment(session.partial_payment || 0)
+    setPaymentInputAmount(0)
   }
 
-  const handleSavePartialPayment = async () => {
+  const handleSavePaymentWithHistory = async (isFinalComplete: boolean = false) => {
     if (!paymentModal) return
     try {
       const today = new Date().toISOString().split('T')[0]
-      // To keep it simple, we apply the total partial payment to the most recent bill or distribute it.
-      // But since we group by buyer, if they pay partially, we should distribute it. 
-      // A simpler approach for this app is to just update all bills for this buyer with partial_payment = partialPayment / bill_ids.length
-      // Actually, since all bills for a buyer are grouped into one payment session:
-      const perBillPartial = partialPayment / paymentModal.bill_ids.length
-      await supabase.from('sales').update({ partial_payment: perBillPartial, payment_date: today }).in('id', paymentModal.bill_ids)
-      
-      toast.success("Partial payment saved successfully!")
-      setPaymentModal(null)
-      loadSessions()
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save partial payment")
-    }
-  }
+      const currentPaid = Number(paymentModal.partial_payment || 0)
+      const overallTotal = Number(paymentModal.overallTotal || 0)
+      const remainingBefore = Math.max(0, overallTotal - currentPaid)
 
-  const handleCompletePaymentFinal = async () => {
-    if (!paymentModal) return
-    try {
-      const today = new Date().toISOString().split('T')[0]
-      const perBillPartial = partialPayment / paymentModal.bill_ids.length
-      await supabase.from('sales').update({ 
-        payment_status: 'Completed', 
-        partial_payment: perBillPartial,
-        payment_date: today
-      }).in('id', paymentModal.bill_ids)
+      let newAmountToPay = isFinalComplete ? remainingBefore : Number(paymentInputAmount || 0)
+      if (newAmountToPay <= 0 && !isFinalComplete) {
+        toast.error("Please enter a valid payment amount")
+        return
+      }
+      if (newAmountToPay > remainingBefore) {
+        newAmountToPay = remainingBefore
+      }
+
+      const newTotalPaid = Math.min(overallTotal, currentPaid + newAmountToPay)
+      const newRemainingBalance = Math.max(0, overallTotal - newTotalPaid)
+
+      let newStatus: 'Pending' | 'Partial Payment' | 'Completed' = 'Pending'
+      if (newRemainingBalance === 0 || isFinalComplete) {
+        newStatus = 'Completed'
+      } else if (newTotalPaid > 0) {
+        newStatus = 'Partial Payment'
+      }
+
+      // Fetch current bills to update individual partial_payment and payment_history
+      const { data: currentBills } = await supabase
+        .from('sales')
+        .select('id, total_amount, partial_payment, payment_history')
+        .in('id', paymentModal.bill_ids)
+
+      if (currentBills && currentBills.length > 0) {
+        const perBillPaymentShare = newAmountToPay / currentBills.length
+
+        for (const bill of currentBills) {
+          const billTotal = Number(bill.total_amount || 0)
+          const billOldPaid = Number(bill.partial_payment || 0)
+          const billNewPaid = Math.min(billTotal, billOldPaid + perBillPaymentShare)
+          const billRem = Math.max(0, billTotal - billNewPaid)
+
+          const existingHistory = Array.isArray(bill.payment_history) ? bill.payment_history : []
+          const newEntry = {
+            id: crypto.randomUUID(),
+            date: today,
+            amount: perBillPaymentShare,
+            remainingBalance: billRem
+          }
+
+          const updatedHistory = [...existingHistory, newEntry]
+
+          await supabase.from('sales').update({
+            partial_payment: billNewPaid,
+            payment_status: newStatus,
+            payment_date: today,
+            payment_history: updatedHistory
+          }).eq('id', bill.id)
+        }
+      }
+
+      toast.success(newStatus === 'Completed' ? "Payment marked as Completed!" : "Partial payment saved successfully!")
       
-      toast.success("Payment marked as Completed!")
-      const sessionToExport = { ...paymentModal, partial_payment: partialPayment, payment_date: today, status: 'Completed' as const }
+      const sessionToExport: GroupedSaleSession = { 
+        ...paymentModal, 
+        partial_payment: newTotalPaid, 
+        payment_date: today, 
+        status: newStatus 
+      }
+
       setPaymentModal(null)
-      setExportPromptSession(sessionToExport)
+      setPaymentInputAmount(0)
+
+      if (newStatus === 'Completed') {
+        setExportPromptSession(sessionToExport)
+      }
+
       loadSessions()
     } catch (err: any) {
-      toast.error(err.message || "Failed to complete payment")
+      toast.error(err.message || "Failed to save payment")
     }
   }
 
@@ -182,14 +247,15 @@ export function SalesPayments() {
     if (!editingInvoice) return
     try {
       const totalAmount = editInvoiceItems.reduce((sum, item) => sum + item.total, 0)
-
-      // Reconstruct items JSONB mapping item names to their details
       const itemsJson = editInvoiceItems.reduce((acc, curr) => ({
         ...acc,
         [curr.name]: curr
       }), {})
 
-      // Update sales row in Supabase
+      const newStatus = (editInvoicePartialPayment >= totalAmount) 
+        ? 'Completed' 
+        : (editInvoicePartialPayment > 0 ? 'Partial Payment' : 'Pending')
+
       const { error } = await supabase
         .from('sales')
         .update({
@@ -197,6 +263,7 @@ export function SalesPayments() {
           total_amount: totalAmount,
           remarks: editInvoiceRemarks,
           partial_payment: editInvoicePartialPayment,
+          payment_status: newStatus,
           items: itemsJson
         })
         .eq('id', editingInvoice.id)
@@ -206,10 +273,8 @@ export function SalesPayments() {
       toast.success("Sales Invoice updated successfully!")
       setEditingInvoice(null)
 
-      // Reload lists and summary cards
       await loadSessions()
 
-      // Refresh details modal
       if (detailsModal) {
         const { data: updatedSales } = await supabase
           .from('sales')
@@ -241,9 +306,7 @@ export function SalesPayments() {
         <h1 className="text-2xl font-bold">{t("salesPayments", lang)}</h1>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Pending Card */}
         <div className="bg-card p-6 rounded-xl border shadow-sm flex items-center space-x-4">
           <div className="p-3 rounded-lg bg-orange-100 dark:bg-orange-950">
             <Clock className="w-6 h-6 text-orange-500" />
@@ -258,7 +321,6 @@ export function SalesPayments() {
           </div>
         </div>
 
-        {/* Completed Card */}
         <div className="bg-card p-6 rounded-xl border shadow-sm flex items-center space-x-4">
           <div className="p-3 rounded-lg bg-green-100 dark:bg-green-950">
             <CheckCircle2 className="w-6 h-6 text-green-500" />
@@ -338,15 +400,17 @@ export function SalesPayments() {
                     <td className="px-4 py-4">{formatDate(session.date)}</td>
                     <td className="px-4 py-4 text-right font-bold text-[15px]">₹{formatInr(session.overallTotal)}</td>
                     <td className="px-4 py-4 text-center">
-                      {session.status === 'Pending' ? (
-                        <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-semibold">Pending</span>
-                      ) : (
+                      {session.status === 'Completed' ? (
                         <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold">Completed</span>
+                      ) : session.status === 'Partial Payment' ? (
+                        <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-semibold">Partial Payment</span>
+                      ) : (
+                        <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-semibold">Pending</span>
                       )}
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        {session.status === 'Pending' && session.billsCount >= 2 && (
+                        {session.status !== 'Completed' && session.billsCount >= 2 && (
                           <button 
                             onClick={() => {
                               setSalesGroupExportPrompt({
@@ -360,8 +424,6 @@ export function SalesPayments() {
                           </button>
                         )}
 
-
-
                         <button 
                           onClick={() => handleViewDetails(session)} 
                           className="text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded flex items-center text-xs font-medium"
@@ -369,7 +431,7 @@ export function SalesPayments() {
                           <Eye className="w-3.5 h-3.5 mr-1" /> {t("viewDetails", lang)}
                         </button>
 
-                        {session.status === 'Pending' && (
+                        {session.status !== 'Completed' && (
                           <button 
                             onClick={() => handleCompletePaymentInitiate(session)} 
                             className="bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1.5 rounded shadow-sm flex items-center text-xs font-medium ml-1"
@@ -409,7 +471,7 @@ export function SalesPayments() {
                     <div className="bg-slate-100 px-4 py-2 border-b flex justify-between items-center font-semibold">
                       <div className="flex items-center gap-2">
                         <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''}</span>
-                        {detailsModal.session.status === 'Pending' && (
+                        {detailsModal.session.status !== 'Completed' && (
                           <button
                             onClick={() => handleEditInvoiceInitiate(bill)}
                             className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
@@ -446,49 +508,41 @@ export function SalesPayments() {
                         </table>
                       </div>
                     </div>
+
+                    {/* Payment History Table for this Invoice */}
+                    {Array.isArray(bill.payment_history) && bill.payment_history.length > 0 && (
+                      <div className="p-4 border-t bg-slate-50/50 space-y-2">
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">{t("paymentHistorySection", lang)}</h4>
+                        <div className="border rounded-lg overflow-hidden text-xs bg-background">
+                          <table className="w-full text-left">
+                            <thead className="bg-slate-100 font-semibold text-slate-600">
+                              <tr>
+                                <th className="p-2">#</th>
+                                <th className="p-2">Date</th>
+                                <th className="p-2 text-right">Amount Paid</th>
+                                <th className="p-2 text-right">Running Balance</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bill.payment_history.map((h, hIdx) => (
+                                <tr key={hIdx} className="border-t">
+                                  <td className="p-2 text-muted-foreground">{hIdx + 1}</td>
+                                  <td className="p-2">{formatDate(h.date)}</td>
+                                  <td className="p-2 text-right font-bold text-green-600">₹{formatInr(h.amount)}</td>
+                                  <td className="p-2 text-right font-medium text-slate-700">₹{formatInr(h.remainingBalance || 0)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
-              
-              {/* Payment Summary */}
-              {((detailsModal.session.partial_payment || 0) > 0 || detailsModal.session.status === 'Completed') && (
-                <div className="bg-card border rounded-lg overflow-hidden shadow-sm mt-6">
-                  <div className="bg-slate-100 px-4 py-2 border-b font-semibold text-center tracking-wide text-sm">
-                    PAYMENT SUMMARY
-                  </div>
-                  <div className="p-4 space-y-3">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-muted-foreground font-medium">Status</span>
-                      <span className="font-semibold text-slate-900">{detailsModal.session.status === 'Completed' ? 'Completed' : 'Partial Payment'}</span>
-                    </div>
-                    {detailsModal.session.payment_date && (
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-muted-foreground font-medium">Payment Date</span>
-                        <span className="font-semibold text-slate-900">{formatDate(detailsModal.session.payment_date)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-muted-foreground font-medium">Overall Bill Amount</span>
-                      <span className="font-semibold text-slate-900">₹{formatInr(detailsModal.session.overallTotal)}</span>
-                    </div>
-                    {detailsModal.session.overallTotal - (detailsModal.session.partial_payment || 0) > 0 ? (
-                      <>
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-muted-foreground font-medium">Partial Amount Paid</span>
-                          <span className="font-semibold text-green-600">₹{formatInr(detailsModal.session.partial_payment || 0)}</span>
-                        </div>
-                        <div className="flex justify-between items-center pt-3 border-t">
-                          <span className="font-bold text-slate-900">Balance Amount</span>
-                          <span className="font-bold text-red-600 text-lg">₹{formatInr(detailsModal.session.overallTotal - (detailsModal.session.partial_payment || 0))}</span>
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-              )}
             </div>
 
-            <div className="p-4 border-t sticky bottom-0 bg-background flex flex-wrap justify-end gap-2">
+            <div className="p-4 border-t bg-background flex items-center justify-end gap-3 sticky bottom-0 z-10">
               <button
                 onClick={() => generateSalesCombinedPDF(detailsModal.session, 'download', lang, detailsModal.bills)}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg font-medium text-sm flex items-center transition-colors border"
@@ -514,59 +568,94 @@ export function SalesPayments() {
                 onClick={() => setDetailsModal(null)} 
                 className="px-6 py-2 border rounded-lg font-medium hover:bg-muted ml-2"
               >
-                Close Details
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Payment Completion Modal */}
+      {/* Payment Completion / Record Partial Payment Modal */}
       {paymentModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-background w-full max-w-md rounded-2xl shadow-xl overflow-hidden">
-            <div className="p-5 border-b bg-slate-50">
-              <h2 className="text-xl font-bold text-center">Payment Summary</h2>
-              <p className="text-sm text-center text-muted-foreground">{paymentModal.buyer_name} • {paymentModal.date}</p>
+          <div className="bg-background w-full max-w-lg rounded-2xl shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b bg-slate-50 flex justify-between items-center sticky top-0 bg-background z-10">
+              <div>
+                <h2 className="text-xl font-bold">{t("paymentSummary", lang)}</h2>
+                <p className="text-xs text-muted-foreground">{paymentModal.buyer_name} • {paymentModal.date}</p>
+              </div>
+              <button onClick={() => setPaymentModal(null)} className="text-slate-400 hover:text-slate-600 text-lg font-medium">✕</button>
             </div>
             
-            <div className="p-6 space-y-6">
-              <div className="flex justify-between items-center pb-4 border-b">
-                <span className="font-medium text-slate-700">Overall Bill Amount</span>
-                <span className="text-xl font-bold text-primary">₹{formatInr(paymentModal.overallTotal)}</span>
+            <div className="p-6 space-y-5 overflow-y-auto flex-1">
+              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border text-center">
+                <div>
+                  <p className="text-xs text-muted-foreground font-medium">{t("overallTotal", lang)}</p>
+                  <p className="text-lg font-bold text-slate-800">₹{formatInr(paymentModal.overallTotal)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-medium">{t("partialPaid", lang)}</p>
+                  <p className="text-lg font-bold text-green-600">₹{formatInr(paymentModal.partial_payment)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-medium">{t("balanceAmount", lang)}</p>
+                  <p className="text-lg font-bold text-red-600">₹{formatInr(Math.max(0, paymentModal.overallTotal - paymentModal.partial_payment))}</p>
+                </div>
               </div>
               
               <div className="space-y-2">
-                <label className="block font-medium text-sm text-slate-700">Amount Received (₹)</label>
+                <label className="block font-medium text-sm text-slate-700">Enter Payment Amount Received Today (₹)</label>
                 <input 
                   type="number" 
-                  className="w-full border p-3 rounded-lg text-lg font-semibold"
-                  value={partialPayment || ''}
-                  onChange={e => setPartialPayment(Number(e.target.value))}
-                  placeholder="0"
+                  className="w-full border p-3 rounded-lg text-lg font-semibold bg-background"
+                  value={paymentInputAmount || ''}
+                  onChange={e => setPaymentInputAmount(Number(e.target.value))}
+                  placeholder={`Max ₹${formatInr(Math.max(0, paymentModal.overallTotal - paymentModal.partial_payment))}`}
                 />
               </div>
 
-              <div className="flex justify-between items-center pt-4 border-t bg-slate-50 p-4 rounded-lg">
-                <span className="font-bold text-slate-700">Balance Amount</span>
-                <span className={`text-xl font-bold ${paymentModal.overallTotal - partialPayment > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  ₹{formatInr(Math.max(0, paymentModal.overallTotal - partialPayment))}
-                </span>
-              </div>
+              {/* Payment History Preview */}
+              {Array.isArray(paymentModal.payment_history) && paymentModal.payment_history.length > 0 && (
+                <div className="space-y-2 border-t pt-3">
+                  <h3 className="text-sm font-bold text-slate-800">{t("paymentHistorySection", lang)}</h3>
+                  <div className="border rounded-lg overflow-hidden text-xs">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-100 font-semibold text-slate-600">
+                        <tr>
+                          <th className="p-2">#</th>
+                          <th className="p-2">Date</th>
+                          <th className="p-2 text-right font-semibold">Amount Paid</th>
+                          <th className="p-2 text-right font-semibold">Running Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paymentModal.payment_history.map((h, i) => (
+                          <tr key={i} className="border-t">
+                            <td className="p-2 text-muted-foreground">{i + 1}</td>
+                            <td className="p-2">{formatDate(h.date)}</td>
+                            <td className="p-2 text-right font-bold text-green-600">₹{formatInr(h.amount)}</td>
+                            <td className="p-2 text-right font-medium text-slate-700">₹{formatInr(h.remainingBalance || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="p-4 border-t flex flex-col gap-2 bg-slate-50">
               <button 
-                onClick={handleSavePartialPayment} 
+                onClick={() => handleSavePaymentWithHistory(false)} 
                 className="w-full bg-orange-100 text-orange-700 py-3 rounded-xl font-semibold hover:bg-orange-200 transition-colors"
               >
-                Save Partial Payment
+                {t("savePartial", lang)}
               </button>
               <button 
-                onClick={handleCompletePaymentFinal} 
+                onClick={() => handleSavePaymentWithHistory(true)} 
                 className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-sm flex justify-center items-center"
               >
-                <CheckCircle2 className="w-5 h-5 mr-2" /> Complete Payment
+                <CheckCircle2 className="w-5 h-5 mr-2" /> {t("completePayment", lang)}
               </button>
               <button 
                 onClick={() => setPaymentModal(null)} 
