@@ -24,7 +24,11 @@ export function Dashboard() {
     overallPaymentAmount: 0,
     overallCompletedAmount: 0,
     overallPendingAmount: 0,
-    overallAdvancePaid: 0
+    overallAdvancePaid: 0,
+    overallSalesAmount: 0,
+    overallSalesCompletedAmount: 0,
+    overallSalesPendingAmount: 0,
+    overallSalesAdvanceReceived: 0
   })
 
   useEffect(() => {
@@ -120,19 +124,46 @@ export function Dashboard() {
       }
     })
 
-    // Load ALL sales to calculate monthlySalesPayments
+    // Load ALL sales to calculate monthlySalesPayments and overall Sales payment metrics
     const { data: allSales } = await supabase
       .from('sales')
-      .select('total_amount, payment_status, partial_payment, payment_date, date')
+      .select('total_amount, advance, payment_status, partial_payment, payment_date, date')
     
     let monthlySalesPayments = 0
+    let overallSalesAmount = 0
+    let overallSalesCompletedAmount = 0
+    let overallSalesPendingAmount = 0
+    let overallSalesAdvanceReceived = 0
+
     allSales?.forEach(s => {
+      const gTotal = Number(s.total_amount || 0)
+      const adv = Number(s.advance || 0)
+      const partPay = Number(s.partial_payment || 0)
+      const totalPaid = adv + partPay
+      const rem = Math.max(0, gTotal - totalPaid)
+
+      // 1. Overall Sales Amount: Total value of all sales bills generated
+      overallSalesAmount += gTotal
+
+      const isCompleted = s.payment_status === 'Completed' || rem === 0
+
+      if (isCompleted) {
+        // 2. Overall Completed Amount: Total value of fully paid sales bills
+        overallSalesCompletedAmount += gTotal
+      } else {
+        // 3. Overall Pending Amount: Total remaining balance across Pending & Partial Payment sales bills
+        overallSalesPendingAmount += rem
+        // 4. Overall Advance Received: Total advance/payment received for Sales bills that are still Pending or Partial Payment
+        overallSalesAdvanceReceived += totalPaid
+      }
+
+      // Cash flow Sales Payments in current month
       const payDate = s.payment_date || s.date
       if (payDate >= startOfMonth && payDate <= endOfMonth) {
         if (s.payment_status === 'Completed') {
-          monthlySalesPayments += Number(s.total_amount)
+          monthlySalesPayments += gTotal
         } else {
-          monthlySalesPayments += Number(s.partial_payment || 0)
+          monthlySalesPayments += partPay
         }
       }
     })
@@ -193,7 +224,11 @@ export function Dashboard() {
       overallPaymentAmount,
       overallCompletedAmount,
       overallPendingAmount,
-      overallAdvancePaid
+      overallAdvancePaid,
+      overallSalesAmount,
+      overallSalesCompletedAmount,
+      overallSalesPendingAmount,
+      overallSalesAdvanceReceived
     })
   }
 
@@ -241,13 +276,13 @@ export function Dashboard() {
       </div>
 
       {/* Payment History & Monthly Profit/Loss Section Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
-        {/* Payment History Card */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {/* Payment History (Purchasing) Card */}
         <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
           <div className="bg-muted px-6 py-4 border-b flex items-center space-x-2">
             <Wallet className="w-5 h-5 text-muted-foreground" />
             <span className="font-bold text-sm text-foreground uppercase tracking-wider">
-              {t("paymentHistorySection", lang)}
+              {t("paymentHistoryPurchasing", lang)}
             </span>
           </div>
           <div className="p-6 space-y-4">
@@ -267,6 +302,35 @@ export function Dashboard() {
             <div className="flex justify-between items-center text-sm pt-1">
               <span className="text-muted-foreground font-medium">{t("overallAdvancePaid", lang)}</span>
               <span className="font-semibold text-purple-600">₹{formatInr(stats.overallAdvancePaid)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Payment History (Sales) Card */}
+        <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
+          <div className="bg-muted px-6 py-4 border-b flex items-center space-x-2">
+            <Wallet className="w-5 h-5 text-muted-foreground" />
+            <span className="font-bold text-sm text-foreground uppercase tracking-wider">
+              {t("paymentHistorySales", lang)}
+            </span>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{t("overallSalesAmount", lang)}</span>
+              <span className="font-semibold text-foreground">₹{formatInr(stats.overallSalesAmount)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{t("overallCompletedAmount", lang)}</span>
+              <span className="font-semibold text-green-600">₹{formatInr(stats.overallSalesCompletedAmount)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground font-medium">{t("overallPendingAmount", lang)}</span>
+              <span className="font-semibold text-orange-500">₹{formatInr(stats.overallSalesPendingAmount)}</span>
+            </div>
+            <div className="h-px bg-slate-200 dark:bg-slate-800 pt-1"></div>
+            <div className="flex justify-between items-center text-sm pt-1">
+              <span className="text-muted-foreground font-medium">{t("overallAdvanceReceived", lang)}</span>
+              <span className="font-semibold text-purple-600">₹{formatInr(stats.overallSalesAdvanceReceived)}</span>
             </div>
           </div>
         </div>
