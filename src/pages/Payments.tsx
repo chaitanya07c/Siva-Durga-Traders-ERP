@@ -227,7 +227,7 @@ export function Payments() {
 
   const handleCompletePaymentInitiate = async (session: GroupedSession) => {
     const shop = shops.find(s => s.id === session.shop_id)
-    if (shop && shop.marked_for_combined_bill && shouldShowCombinedToggle(session)) {
+    if (shop && shop.marked_for_combined_bill) {
       let groupShops: Shop[] = []
       if (belongsToPredefinedGroup(shop.name)) {
         groupShops = getPredefinedGroupShops(shops, shop)
@@ -240,21 +240,31 @@ export function Payments() {
       const shopIds = groupShops.map(s => s.id)
       const { data: groupPurchases } = await supabase
         .from('purchases')
-        .select('id, grand_total, session_partial_payment')
+        .select('id, grand_total, session_partial_payment, payment_status, bill_number, date, session_id')
         .in('shop_id', shopIds)
-        .eq('payment_status', 'Pending')
+        .in('payment_status', ['Pending', 'Partial Payment'])
         
       if (groupPurchases && groupPurchases.length > 0) {
         const groupBillIds = groupPurchases.map(p => p.id)
         const overallTotal = groupPurchases.reduce((sum, p) => sum + p.grand_total, 0)
         const totalPartialPayment = groupPurchases.reduce((sum, p) => sum + (p.session_partial_payment || 0), 0)
         
+        console.log("=== COMBINED COMPLETE PAYMENT INITIATE DEBUG ===", {
+          purchaseId: session.id,
+          sessionId: session.session_id,
+          shopName: shop.name,
+          combinedFlag: shop.marked_for_combined_bill,
+          date: session.date,
+          grandTotal: overallTotal,
+          billsLoadedForCompletePayment: groupPurchases
+        })
+
         setPaymentModal({
           ...session,
-          shop_name: `${shop.name} (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})`,
+          shop_name: `${shop.name}${groupShops.length > 1 ? ` (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})` : ''}`,
           overallTotal,
           bill_ids: groupBillIds,
-          isCombinedGroup: groupShops.length > 1,
+          isCombinedGroup: true,
           shopsInGroup: groupShops
         } as any)
         setPartialPayment(totalPartialPayment)
@@ -274,9 +284,12 @@ export function Payments() {
         ? 'Completed' 
         : (partialPayment > 0 ? 'Partial Payment' : 'Pending')
 
+      const count = paymentModal.bill_ids.length || 1
+      const perBillPartial = partialPayment / count
+
       await supabase.from('purchases').update({ 
         payment_status: newStatus,
-        session_partial_payment: partialPayment, 
+        session_partial_payment: perBillPartial, 
         payment_date: today 
       }).in('id', paymentModal.bill_ids)
       
@@ -292,9 +305,12 @@ export function Payments() {
     if (!paymentModal) return
     try {
       const today = new Date().toISOString().split('T')[0]
+      const count = paymentModal.bill_ids.length || 1
+      const perBillPartial = paymentModal.overallTotal / count
+
       await supabase.from('purchases').update({ 
         payment_status: 'Completed', 
-        session_partial_payment: partialPayment,
+        session_partial_payment: perBillPartial,
         payment_date: today
       }).in('id', paymentModal.bill_ids)
 
@@ -332,7 +348,7 @@ export function Payments() {
   const handleViewDetails = async (session: GroupedSession) => {
     try {
       const shop = shops.find(s => s.id === session.shop_id)
-      if (shop && shop.marked_for_combined_bill && shouldShowCombinedToggle(session)) {
+      if (shop && shop.marked_for_combined_bill) {
         let groupShops: Shop[] = []
         if (belongsToPredefinedGroup(shop.name)) {
           groupShops = getPredefinedGroupShops(shops, shop)
@@ -347,12 +363,30 @@ export function Payments() {
           .from('purchases')
           .select('*, shops(*)')
           .in('shop_id', shopIds)
-          .eq('payment_status', 'Pending')
+          .in('payment_status', ['Pending', 'Partial Payment'])
           .order('date', { ascending: true })
           
         if (purchases && purchases.length > 0) {
           const billIds = purchases.map(p => p.id)
           const overallTotal = purchases.reduce((sum, p) => sum + p.grand_total, 0)
+          const totalPartialPayment = purchases.reduce((sum, p) => sum + (p.session_partial_payment || 0), 0)
+
+          console.log("=== COMBINED VIEW DETAILS DEBUG ===", {
+            purchaseId: session.id,
+            sessionId: session.session_id,
+            shopName: shop.name,
+            combinedFlag: shop.marked_for_combined_bill,
+            date: session.date,
+            grandTotal: overallTotal,
+            billsLoadedForViewDetails: purchases.map(p => ({
+              id: p.id,
+              bill_number: p.bill_number,
+              grand_total: p.grand_total,
+              payment_status: p.payment_status,
+              session_id: p.session_id,
+              date: p.date
+            }))
+          })
           
           const { data: allItems } = await supabase
             .from('purchase_items')
@@ -381,17 +415,19 @@ export function Payments() {
               advance: fb.advance || 0,
               remarks: fb.remarks,
               session_id: fb.session_id || fb.id,
-              session_partial_payment: fb.session_partial_payment || 0
+              session_partial_payment: fb.session_partial_payment || 0,
+              payment_date: fb.payment_date
             }
           })
 
           setDetailsModal({
             session: {
               ...session,
-              shop_name: `${shop.name} (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})`,
+              shop_name: `${shop.name}${groupShops.length > 1 ? ` (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})` : ''}`,
               overallTotal,
+              session_partial_payment: totalPartialPayment,
               bill_ids: billIds,
-              isCombinedGroup: groupShops.length > 1,
+              isCombinedGroup: true,
               shopsInGroup: groupShops
             } as any,
             bills

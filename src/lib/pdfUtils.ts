@@ -266,7 +266,7 @@ export const buildCurrentSession = async (session_id: string): Promise<GroupedSe
     .from('purchases')
     .select('id, date, grand_total, payment_status, shop_id, session_partial_payment, payment_date, shops(name, type)')
     .eq('session_id', session_id)
-    .eq('payment_status', 'Pending')
+    .in('payment_status', ['Pending', 'Partial Payment'])
 
   if (!data || data.length === 0) return null
 
@@ -357,10 +357,25 @@ export const generateCombinedGroupPDF = async (
       if (billIds && billIds.length > 0) {
         query = query.in('id', billIds)
       } else {
-        query = query.in('shop_id', shopIds).eq('payment_status', 'Pending')
+        query = query.in('shop_id', shopIds).in('payment_status', ['Pending', 'Partial Payment'])
       }
 
       const { data: fullBills, error: fetchError } = await query.order('date', { ascending: true })
+
+      console.log("=== COMBINED PDF DEBUG ===", {
+        shopName: targetShop.name,
+        combinedFlag: targetShop.marked_for_combined_bill,
+        date: date || fullBills?.[0]?.date,
+        grandTotal: fullBills?.reduce((sum, b) => sum + b.grand_total, 0),
+        billsLoadedForPDF: fullBills?.map(p => ({
+          id: p.id,
+          bill_number: p.bill_number,
+          grand_total: p.grand_total,
+          payment_status: p.payment_status,
+          session_id: p.session_id,
+          date: p.date
+        }))
+      })
 
       if (fetchError) {
         console.error("Failed to query group purchases:", fetchError)
