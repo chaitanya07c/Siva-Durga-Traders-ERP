@@ -129,6 +129,10 @@ export const generateSalesCombinedPDF = async (
     // Sort ascending by date
     const sortedHistory = historyList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
+    const latestDateFromBills = bills.map(b => b.payment_date).filter(Boolean).sort((a, b) => new Date(b!).getTime() - new Date(a!).getTime())[0]
+    const latestDateFromHistory = sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1].date : null
+    const effectivePaymentDate = session.payment_date || latestDateFromHistory || latestDateFromBills || session.date
+
     const documentData: PDFDocumentData = {
       title: "SALES INVOICE",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
@@ -164,6 +168,8 @@ export const generateSalesCombinedPDF = async (
         balanceAmount: balance,
         partialPaid: totalPaid,
         status: paymentStatus,
+        paymentDate: effectivePaymentDate,
+        completedDate: effectivePaymentDate,
         paymentHistory: sortedHistory
       }
     }

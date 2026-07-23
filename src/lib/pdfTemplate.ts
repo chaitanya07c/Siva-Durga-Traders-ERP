@@ -29,6 +29,8 @@ export type PDFDocumentData = {
     balanceAmount: number
     partialPaid: number
     status: string
+    paymentDate?: string | null
+    completedDate?: string | null
     paymentHistory?: { date: string, amount: number, remarks?: string }[]
   }
   filename: string
@@ -237,11 +239,15 @@ export const generateProfessionalPDF = async (
       y = grandTotalY + 10
     })
 
-    // Payment Summary
-    const isPartial = data.paymentSummary.status === 'Partial Payment' || data.paymentSummary.status === 'Partial Paid'
+    // Payment Summary Section
+    const statusStr = data.paymentSummary.status
+    const isCompleted = statusStr === 'Completed' || statusStr === 'Completed Paid'
+    const isPartial = statusStr === 'Partial Payment' || statusStr === 'Partial Paid'
+    const isPending = !isCompleted && !isPartial
     const paymentHistory = data.paymentSummary.paymentHistory || []
 
-    if (!isPartial || paymentHistory.length === 0) {
+    if (isCompleted) {
+      // COMPLETED PAYMENT: 3 rows (Status [Completed - Green], Completed Date, Overall Bill Amount)
       const summaryHeight = 26.5
       if (y + summaryHeight > 280) {
         doc.addPage()
@@ -262,40 +268,106 @@ export const generateProfessionalPDF = async (
       doc.setTextColor(40, 50, 70)
       doc.text("PAYMENT SUMMARY", 105, summaryY + 5, { align: "center" })
 
-      doc.setDrawColor(225, 230, 238)
-      doc.setLineWidth(0.3)
-
       let curY = summaryY + 7
 
-      // Row 1: Overall Amount
+      // 1. Status [Completed Badge - Green]
       doc.setFont("helvetica", "bold")
       doc.setFontSize(9.5)
       doc.setTextColor(50, 50, 50)
-      doc.text("Overall Amount", 50, curY + 4.5)
-      doc.text(`Rs ${formatInr(data.paymentSummary.overallAmount || 0)}`, 160, curY + 4.5, { align: "right" })
+      doc.text("Status", 50, curY + 4.5)
+      drawStatusBadge(doc, "Completed", 160, curY + 3.25)
+
+      doc.setDrawColor(225, 230, 238)
+      doc.setLineWidth(0.3)
       doc.line(45, curY + 6.5, 165, curY + 6.5)
 
-      // Row 2: Balance Amount
-      curY += 6.5
-      doc.setTextColor(180, 0, 0)
-      doc.text("Balance Amount", 50, curY + 4.5)
-      doc.text(`Rs ${formatInr(data.paymentSummary.balanceAmount || 0)}`, 160, curY + 4.5, { align: "right" })
-      doc.line(45, curY + 6.5, 165, curY + 6.5)
-
-      // Row 3: Payment Status
+      // 2. Completed Date
       curY += 6.5
       doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
       doc.setTextColor(50, 50, 50)
-      doc.text("Payment Status", 50, curY + 4.5)
-      drawStatusBadge(doc, data.paymentSummary.status, 160, curY + 3.25)
-      
+      doc.text("Completed Date", 50, curY + 4.5)
+      doc.setFont("helvetica", "normal")
+      doc.setTextColor(80, 80, 80)
+      const compDateStr = data.paymentSummary.completedDate || data.paymentSummary.paymentDate || new Date().toISOString().split('T')[0]
+      doc.text(formatDate(compDateStr), 160, curY + 4.5, { align: "right" })
+
+      doc.setDrawColor(225, 230, 238)
+      doc.setLineWidth(0.3)
+      doc.line(45, curY + 6.5, 165, curY + 6.5)
+
+      // 3. Overall Bill Amount
+      curY += 6.5
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
+      doc.setTextColor(50, 50, 50)
+      doc.text("Overall Bill Amount", 50, curY + 4.5)
+      drawRupeeValue(doc, data.paymentSummary.overallAmount, 160, curY + 4.5, 50, 50, 50)
+
+      y = summaryY + summaryHeight
+    } else if (isPending) {
+      // PENDING PAYMENT: 3 rows (Status [Pending - Amber], Overall Bill Amount, Balance Amount)
+      const summaryHeight = 26.5
+      if (y + summaryHeight > 280) {
+        doc.addPage()
+        drawHeader()
+        y = 42
+      }
+
+      const summaryY = y + 5
+      doc.setDrawColor(210, 220, 235)
+      doc.setFillColor(255, 255, 255)
+      doc.setLineWidth(0.4)
+      doc.roundedRect(45, summaryY, 120, summaryHeight, 4, 4, "FD")
+
+      doc.setFillColor(245, 247, 250)
+      doc.rect(45, summaryY, 120, 7, "FD")
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(10)
+      doc.setTextColor(40, 50, 70)
+      doc.text("PAYMENT SUMMARY", 105, summaryY + 5, { align: "center" })
+
+      let curY = summaryY + 7
+
+      // 1. Status [Pending Badge - Amber]
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
+      doc.setTextColor(50, 50, 50)
+      doc.text("Status", 50, curY + 4.5)
+      drawStatusBadge(doc, "Pending", 160, curY + 3.25)
+
+      doc.setDrawColor(225, 230, 238)
+      doc.setLineWidth(0.3)
+      doc.line(45, curY + 6.5, 165, curY + 6.5)
+
+      // 2. Overall Bill Amount
+      curY += 6.5
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
+      doc.setTextColor(50, 50, 50)
+      doc.text("Overall Bill Amount", 50, curY + 4.5)
+      drawRupeeValue(doc, data.paymentSummary.overallAmount, 160, curY + 4.5, 50, 50, 50)
+
+      doc.setDrawColor(225, 230, 238)
+      doc.setLineWidth(0.3)
+      doc.line(45, curY + 6.5, 165, curY + 6.5)
+
+      // 3. Balance Amount
+      curY += 6.5
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(9.5)
+      doc.setTextColor(180, 0, 0)
+      doc.text("Balance Amount", 50, curY + 4.5)
+      drawRupeeValue(doc, data.paymentSummary.balanceAmount, 160, curY + 4.5, 180, 0, 0)
+
       y = summaryY + summaryHeight
     } else {
+      // PARTIAL PAYMENT
       const isMultiple = paymentHistory.length > 1
 
       if (!isMultiple) {
-        // Case A: Single Partial Payment (5 rows)
-        const summaryHeight = 39.5
+        // Single Partial Payment: 4 rows (Status, Last Payment Date, Overall Bill Amount, Balance Amount)
+        const summaryHeight = 33.0
         if (y + summaryHeight > 280) {
           doc.addPage()
           drawHeader()
@@ -317,7 +389,7 @@ export const generateProfessionalPDF = async (
 
         let curY = summaryY + 7
 
-        // 1. Status
+        // 1. Status [Partial Payment Badge - Orange]
         doc.setFont("helvetica", "bold")
         doc.setFontSize(9.5)
         doc.setTextColor(50, 50, 50)
@@ -328,15 +400,16 @@ export const generateProfessionalPDF = async (
         doc.setLineWidth(0.3)
         doc.line(45, curY + 6.5, 165, curY + 6.5)
 
-        // 2. Payment Date
+        // 2. Last Payment Date
         curY += 6.5
         doc.setFont("helvetica", "bold")
+        doc.setFontSize(9.5)
         doc.setTextColor(50, 50, 50)
-        doc.text("Payment Date", 50, curY + 4.5)
+        doc.text("Last Payment Date", 50, curY + 4.5)
         doc.setFont("helvetica", "normal")
         doc.setTextColor(80, 80, 80)
-        const singleDate = paymentHistory.length > 0 ? paymentHistory[0].date : (data.paymentSummary as any).paymentDate
-        doc.text(formatDate(singleDate), 160, curY + 4.5, { align: "right" })
+        const lastDate = paymentHistory.length > 0 ? paymentHistory[paymentHistory.length - 1].date : (data.paymentSummary.paymentDate || new Date().toISOString().split('T')[0])
+        doc.text(formatDate(lastDate), 160, curY + 4.5, { align: "right" })
 
         doc.setDrawColor(225, 230, 238)
         doc.setLineWidth(0.3)
@@ -345,6 +418,7 @@ export const generateProfessionalPDF = async (
         // 3. Overall Bill Amount
         curY += 6.5
         doc.setFont("helvetica", "bold")
+        doc.setFontSize(9.5)
         doc.setTextColor(50, 50, 50)
         doc.text("Overall Bill Amount", 50, curY + 4.5)
         drawRupeeValue(doc, data.paymentSummary.overallAmount, 160, curY + 4.5, 50, 50, 50)
@@ -353,28 +427,17 @@ export const generateProfessionalPDF = async (
         doc.setLineWidth(0.3)
         doc.line(45, curY + 6.5, 165, curY + 6.5)
 
-        // 4. Partial Amount Paid
+        // 4. Balance Amount
         curY += 6.5
         doc.setFont("helvetica", "bold")
-        doc.setTextColor(50, 50, 50)
-        doc.text("Partial Amount Paid", 50, curY + 4.5)
-        const singleAmount = paymentHistory.length > 0 ? paymentHistory[0].amount : data.paymentSummary.partialPaid
-        drawRupeeValue(doc, singleAmount, 160, curY + 4.5, 21, 128, 61)
-
-        doc.setDrawColor(225, 230, 238)
-        doc.setLineWidth(0.3)
-        doc.line(45, curY + 6.5, 165, curY + 6.5)
-
-        // 5. Balance Amount
-        curY += 6.5
-        doc.setFont("helvetica", "bold")
+        doc.setFontSize(9.5)
         doc.setTextColor(180, 0, 0)
         doc.text("Balance Amount", 50, curY + 4.5)
         drawRupeeValue(doc, data.paymentSummary.balanceAmount, 160, curY + 4.5, 180, 0, 0)
 
         y = summaryY + summaryHeight
       } else {
-        // Case B: Multiple Partial Payments (5 + N rows)
+        // Multiple Partial Payments (with Payment History table)
         const N = paymentHistory.length
         const summaryHeight = 7 + ((5 + N) * 6.5)
 
@@ -399,7 +462,7 @@ export const generateProfessionalPDF = async (
 
         let curY = summaryY + 7
 
-        // 1. Status
+        // 1. Status [Partial Payment Badge - Orange]
         doc.setFont("helvetica", "bold")
         doc.setFontSize(9.5)
         doc.setTextColor(50, 50, 50)
@@ -410,7 +473,22 @@ export const generateProfessionalPDF = async (
         doc.setLineWidth(0.3)
         doc.line(45, curY + 6.5, 165, curY + 6.5)
 
-        // 2. Payment History Section Title
+        // 2. Last Payment Date
+        curY += 6.5
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(9.5)
+        doc.setTextColor(50, 50, 50)
+        doc.text("Last Payment Date", 50, curY + 4.5)
+        doc.setFont("helvetica", "normal")
+        doc.setTextColor(80, 80, 80)
+        const lastDate = paymentHistory[paymentHistory.length - 1].date
+        doc.text(formatDate(lastDate), 160, curY + 4.5, { align: "right" })
+
+        doc.setDrawColor(225, 230, 238)
+        doc.setLineWidth(0.3)
+        doc.line(45, curY + 6.5, 165, curY + 6.5)
+
+        // 3. Payment History Title
         curY += 6.5
         doc.setFont("helvetica", "bold")
         doc.setFontSize(9.5)
@@ -421,7 +499,7 @@ export const generateProfessionalPDF = async (
         doc.setLineWidth(0.3)
         doc.line(45, curY + 6.5, 165, curY + 6.5)
 
-        // 3. Payment History Headers
+        // 4. Payment History Headers
         curY += 6.5
         doc.setFont("helvetica", "bold")
         doc.setFontSize(8.5)
@@ -433,7 +511,7 @@ export const generateProfessionalPDF = async (
         doc.setLineWidth(0.3)
         doc.line(45, curY + 6.5, 165, curY + 6.5)
 
-        // 4. Payment History Rows (N rows)
+        // 5. Payment History Rows (N rows)
         doc.setFont("helvetica", "normal")
         doc.setFontSize(9)
         doc.setTextColor(80, 80, 80)
@@ -448,7 +526,7 @@ export const generateProfessionalPDF = async (
           doc.line(45, curY + 6.5, 165, curY + 6.5)
         })
 
-        // 5. Overall Bill Amount
+        // 6. Overall Bill Amount
         curY += 6.5
         doc.setFont("helvetica", "bold")
         doc.setFontSize(9.5)
@@ -460,7 +538,7 @@ export const generateProfessionalPDF = async (
         doc.setLineWidth(0.3)
         doc.line(45, curY + 6.5, 165, curY + 6.5)
 
-        // 6. Balance Amount
+        // 7. Balance Amount
         curY += 6.5
         doc.setFont("helvetica", "bold")
         doc.setFontSize(9.5)
