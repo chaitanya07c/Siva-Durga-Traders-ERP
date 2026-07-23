@@ -166,7 +166,7 @@ export const generateSalesCombinedPDF = async (
         overallAmount: session.overallTotal || 0,
         advanceAmount: totalAdvance,
         balanceAmount: balance,
-        partialPaid: totalPaid,
+        partialPaid: additionalPayments,
         status: paymentStatus,
         paymentDate: effectivePaymentDate,
         completedDate: effectivePaymentDate,

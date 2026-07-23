@@ -125,17 +125,19 @@ export const generateCombinedPDF = async (
       if (!shop) shop = breakdown.shop
     }
     
+    const totalAdvance = bills.reduce((sum, b) => sum + (b.advance || 0), 0)
     const partialPayment = session.session_partial_payment || 0
-    const balance = session.overallTotal - partialPayment
+    const totalPaid = totalAdvance + partialPayment
+    const balance = Math.max(0, (session.overallTotal || 0) - totalPaid)
     
     let paymentStatus = "Pending"
     if (session.status === 'Completed' || balance === 0) {
       paymentStatus = "Completed"
-    } else if (partialPayment > 0) {
+    } else if (totalPaid > 0) {
       paymentStatus = "Partial Paid"
     }
 
-        const historyMap = new Map<string, { date: string, amount: number }>()
+    const historyMap = new Map<string, { date: string, amount: number }>()
     bills.forEach(b => {
       if (b.session_partial_payment && b.session_partial_payment > 0 && b.payment_date) {
         const sId = b.session_id || b.id || ''
@@ -191,6 +193,7 @@ export const generateCombinedPDF = async (
       }),
       paymentSummary: {
         overallAmount: session.overallTotal || 0,
+        advanceAmount: totalAdvance,
         balanceAmount: balance || 0,
         partialPaid: partialPayment || 0,
         status: paymentStatus,
@@ -432,14 +435,16 @@ export const generateCombinedGroupPDF = async (
       })
     }
 
+    const totalAdvance = reconstructedBills.reduce((sum, b) => sum + (b.advance || 0), 0)
     const overallBillAmount = reconstructedBills.reduce((sum, b) => sum + b.grandTotal, 0)
-    const amountPaid = reconstructedBills.reduce((sum, b) => sum + (b.session_partial_payment || 0), 0)
-    const balanceAmount = overallBillAmount - amountPaid
+    const partialPaymentsSum = reconstructedBills.reduce((sum, b) => sum + (b.session_partial_payment || 0), 0)
+    const totalPaid = totalAdvance + partialPaymentsSum
+    const balanceAmount = Math.max(0, overallBillAmount - totalPaid)
 
     let paymentStatus = "Pending"
     if (balanceAmount === 0) {
       paymentStatus = "Completed"
-    } else if (amountPaid > 0) {
+    } else if (totalPaid > 0) {
       paymentStatus = "Partial Paid"
     }
 
@@ -496,8 +501,9 @@ export const generateCombinedGroupPDF = async (
       }),
       paymentSummary: {
         overallAmount: overallBillAmount,
+        advanceAmount: totalAdvance,
         balanceAmount: balanceAmount,
-        partialPaid: amountPaid,
+        partialPaid: partialPaymentsSum,
         status: paymentStatus,
         paymentHistory
       }
