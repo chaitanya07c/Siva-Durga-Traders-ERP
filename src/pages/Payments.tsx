@@ -405,6 +405,7 @@ export function Payments() {
                 total: i.total
               }
             })
+            const shopObj = ((Array.isArray(fb.shops) ? fb.shops[0] : fb.shops) as Shop) || shop
             return {
               id: fb.id,
               billNumber: fb.bill_number,
@@ -416,7 +417,9 @@ export function Payments() {
               remarks: fb.remarks,
               session_id: fb.session_id || fb.id,
               session_partial_payment: fb.session_partial_payment || 0,
-              payment_date: fb.payment_date
+              payment_date: fb.payment_date,
+              shop_id: fb.shop_id,
+              shop: shopObj
             }
           })
 

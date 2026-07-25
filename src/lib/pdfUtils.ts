@@ -31,6 +31,7 @@ export type BillBreakdown = {
   advance?: number
   remarks?: string | null
   session_id?: string
+  shop_id?: string
   shop?: Shop
   session_partial_payment?: number
   payment_date?: string | null
@@ -61,6 +62,7 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
       }
     })
     
+    const shopObj = (Array.isArray(fb.shops) ? fb.shops[0] : fb.shops) as Shop
     return {
       id: fb.id,
       billNumber: fb.bill_number,
@@ -71,6 +73,8 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
       advance: fb.advance,
       remarks: fb.remarks,
       session_id: fb.session_id || fb.id,
+      shop_id: fb.shop_id,
+      shop: shopObj,
       session_partial_payment: fb.session_partial_payment || 0,
       payment_date: fb.payment_date
     }
@@ -97,7 +101,7 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
     marked_for_combined_bill: false
   }
 
-  const shop = (fullBills && fullBills.length > 0) ? ((fullBills as any)[0].shops as Shop || fallbackShop) : fallbackShop
+  const shop = (fullBills && fullBills.length > 0) ? (((Array.isArray((fullBills as any)[0].shops) ? (fullBills as any)[0].shops[0] : (fullBills as any)[0].shops) as Shop) || fallbackShop) : fallbackShop
 
   return {
     shop,
@@ -125,10 +129,35 @@ export const generateCombinedPDF = async (
       if (!shop) shop = breakdown.shop
     }
     
+    // Ensure missing shops on preloaded bills are resolved
+    const missingShopBillIds = bills.filter(b => !b.shop && (b.id || b.shop_id)).map(b => b.id).filter(Boolean) as string[]
+    if (missingShopBillIds.length > 0) {
+      const { data: dbBills } = await supabase
+        .from('purchases')
+        .select('id, shop_id, shops(*)')
+        .in('id', missingShopBillIds)
+      
+      if (dbBills && dbBills.length > 0) {
+        const shopMap = new Map<string, Shop>()
+        dbBills.forEach((dbB: any) => {
+          const sObj = (Array.isArray(dbB.shops) ? dbB.shops[0] : dbB.shops) as Shop
+          if (sObj) shopMap.set(dbB.id, sObj)
+        })
+        bills = bills.map(b => {
+          if (!b.shop && b.id && shopMap.has(b.id)) {
+            return { ...b, shop: shopMap.get(b.id) }
+          }
+          return b
+        })
+      }
+    }
+    
     const totalAdvance = bills.reduce((sum, b) => sum + (b.advance || 0), 0)
-    const partialPayment = session.session_partial_payment || 0
+    const overallBillAmount = bills.reduce((sum, b) => sum + (b.grandTotal || 0), 0)
+    const partialPaymentsSum = bills.reduce((sum, b) => sum + (b.session_partial_payment || 0), 0)
+    const partialPayment = partialPaymentsSum || session.session_partial_payment || 0
     const totalPaid = totalAdvance + partialPayment
-    const balance = Math.max(0, (session.overallTotal || 0) - totalPaid)
+    const balance = Math.max(0, overallBillAmount - totalPaid)
     
     let paymentStatus = "Pending"
     if (session.status === 'Completed' || balance === 0) {
@@ -160,10 +189,11 @@ export const generateCombinedPDF = async (
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
       filename: `${shop?.name || 'Shop'}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
       bills: bills.map(bill => {
-        const shopName = lang === 'te' && bill.shop?.name_te ? bill.shop.name_te : (bill.shop?.name || shop?.name || 'Unknown Shop')
-        const landmarkText = lang === 'te' && (bill.shop?.landmark_te || shop?.landmark_te) ? (bill.shop?.landmark_te || shop?.landmark_te) : (bill.shop?.landmark || shop?.landmark || '')
-        const contactPerson = lang === 'te' && (bill.shop?.contact_person_te || shop?.contact_person_te) ? (bill.shop?.contact_person_te || shop?.contact_person_te) : (bill.shop?.contact_person || shop?.contact_person || '')
-        const contactMobile = bill.shop?.mobile || shop?.mobile || ''
+        const currentShop = bill.shop || shop
+        const shopName = lang === 'te' && currentShop?.name_te ? currentShop.name_te : (currentShop?.name || 'Unknown Shop')
+        const landmarkText = lang === 'te' && currentShop?.landmark_te ? currentShop.landmark_te : (currentShop?.landmark || '')
+        const contactPerson = lang === 'te' && currentShop?.contact_person_te ? currentShop.contact_person_te : (currentShop?.contact_person || '')
+        const contactMobile = currentShop?.mobile || ''
         const contactStr = contactPerson ? `${contactPerson} (${contactMobile})` : contactMobile
 
         const metadataLeft = [
@@ -192,10 +222,10 @@ export const generateCombinedPDF = async (
         }
       }),
       paymentSummary: {
-        overallAmount: session.overallTotal || 0,
+        overallAmount: overallBillAmount,
         advanceAmount: totalAdvance,
-        balanceAmount: balance || 0,
-        partialPaid: partialPayment || 0,
+        balanceAmount: balance,
+        partialPaid: partialPayment,
         status: paymentStatus,
         paymentDate: effectivePaymentDate,
         completedDate: effectivePaymentDate,
@@ -350,7 +380,35 @@ export const generateCombinedGroupPDF = async (
     if (preloadedBills && preloadedBills.length > 0) {
       reconstructedBills = preloadedBills.map(b => ({
         ...b,
-        shop: b.shop || shopsInGroup.find(s => s.id === (b as any).shop_id) || targetShop
+        shop: b.shop || shopsInGroup.find(s => s.id === b.shop_id || s.id === (b as any).shop_id)
+      }))
+
+      const missingShopBillIds = reconstructedBills.filter(b => !b.shop && (b.id || b.shop_id)).map(b => b.id).filter(Boolean) as string[]
+      if (missingShopBillIds.length > 0) {
+        const { data: dbBills } = await supabase
+          .from('purchases')
+          .select('id, shop_id, shops(*)')
+          .in('id', missingShopBillIds)
+        
+        if (dbBills && dbBills.length > 0) {
+          const shopMap = new Map<string, Shop>()
+          dbBills.forEach((dbB: any) => {
+            const sObj = (Array.isArray(dbB.shops) ? dbB.shops[0] : dbB.shops) as Shop
+            if (sObj) shopMap.set(dbB.id, sObj)
+          })
+          reconstructedBills = reconstructedBills.map(b => {
+            if (!b.shop && b.id && shopMap.has(b.id)) {
+              return { ...b, shop: shopMap.get(b.id) }
+            }
+            return b
+          })
+        }
+      }
+
+      // Final fallback to targetShop if still missing
+      reconstructedBills = reconstructedBills.map(b => ({
+        ...b,
+        shop: b.shop || targetShop
       }))
     } else {
       let query = supabase
@@ -418,6 +476,7 @@ export const generateCombinedGroupPDF = async (
           }
         })
         
+        const shopObj = ((Array.isArray(fb.shops) ? fb.shops[0] : fb.shops) as Shop) || targetShop
         return {
           id: fb.id,
           billNumber: fb.bill_number,
@@ -427,7 +486,8 @@ export const generateCombinedGroupPDF = async (
           previous_balance: fb.previous_balance || 0,
           advance: fb.advance || 0,
           remarks: fb.remarks,
-          shop: fb.shops as Shop,
+          shop_id: fb.shop_id,
+          shop: shopObj,
           session_id: fb.session_id || fb.id,
           session_partial_payment: fb.session_partial_payment || 0,
           payment_date: fb.payment_date
