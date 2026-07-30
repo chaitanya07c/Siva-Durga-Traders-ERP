@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase"
 import type { Shop } from "@/types/database"
 import { toast } from "sonner"
-import { formatDate, formatFilenameDate } from "./utils"
+import { formatDate } from "./utils"
 
 import { formatQuantity, generateProfessionalPDF, type PDFDocumentData } from "./pdfTemplate"
 export { formatQuantity }
@@ -187,7 +187,7 @@ export const generateCombinedPDF = async (
     const documentData: PDFDocumentData = {
       title: "PURCHASE INVOICE",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
-      filename: `${shop?.name || 'Shop'}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
+      filename: `${shop?.name || 'Shop'}.pdf`,
       bills: bills.map(bill => {
         const currentShop = bill.shop || shop
         const shopName = lang === 'te' && currentShop?.name_te ? currentShop.name_te : (currentShop?.name || 'Unknown Shop')
@@ -265,7 +265,7 @@ export const shareWhatsApp = async (
 
     const file = new File(
       [pdfBlob],
-      `${shop?.name || 'Shop'}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
+      `${shop?.name || 'Shop'}.pdf`,
       { type: "application/pdf" }
     )
 
@@ -522,11 +522,10 @@ export const generateCombinedGroupPDF = async (
     })
     const paymentHistory = Array.from(historyMap.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
-    const dateToUse = date || reconstructedBills[0]?.date
     const documentData: PDFDocumentData = {
       title: "PURCHASE INVOICE",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
-      filename: `${targetShop.name || 'Group'}_${formatFilenameDate(dateToUse)}.pdf`,
+      filename: `${targetShop.name || 'Group'}.pdf`,
       bills: reconstructedBills.map(bill => {
         const shopName = lang === 'te' && bill.shop?.name_te ? bill.shop.name_te : (bill.shop?.name || 'Unknown Shop')
         const landmarkText = lang === 'te' && bill.shop?.landmark_te ? bill.shop.landmark_te : (bill.shop?.landmark || '')
@@ -597,7 +596,7 @@ export const shareCombinedGroupWhatsApp = async (
 
     const file = new File(
       [pdfBlob],
-      `${targetShop?.name || 'Group'}_${formatFilenameDate(date)}.pdf`,
+      `${targetShop?.name || 'Group'}.pdf`,
       { type: "application/pdf" }
     )
 

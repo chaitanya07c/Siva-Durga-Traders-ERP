@@ -37,9 +37,6 @@ export function Dashboard() {
 
   const loadStats = async () => {
     const today = new Date().toISOString().split('T')[0]
-    const todayDate = new Date()
-    const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1).toISOString().split('T')[0]
-    const endOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0).toISOString().split('T')[0]
     
     // Total Shops
     const { count: shopCount } = await supabase.from('shops').select('*', { count: 'exact', head: true })
@@ -58,7 +55,6 @@ export function Dashboard() {
       .select('id, session_id, grand_total, advance, payment_status, session_partial_payment, payment_date, date, shop_id, shops(name)')
     
     const pendingShopIds = new Set<string>()
-    let monthlyPurchasePayments = 0
     let overallPaymentAmount = 0
     let overallCompletedAmount = 0
 
@@ -112,24 +108,22 @@ export function Dashboard() {
       overallAdvancePaid += (g.advanceSum + g.partialPayment)
     })
 
+    // Overall Purchase Payments (cash flow overall)
+    let overallPurchasePayments = 0
     allPurchases?.forEach(p => {
-      // Cash flow Purchase Payments in current month
-      const payDate = p.payment_date || p.date
-      if (payDate >= startOfMonth && payDate <= endOfMonth) {
-        if (p.payment_status === 'Completed') {
-          monthlyPurchasePayments += Number(p.grand_total)
-        } else {
-          monthlyPurchasePayments += Number(p.session_partial_payment || 0)
-        }
+      if (p.payment_status === 'Completed') {
+        overallPurchasePayments += Number(p.grand_total)
+      } else {
+        overallPurchasePayments += Number(p.session_partial_payment || 0)
       }
     })
 
-    // Load ALL sales to calculate monthlySalesPayments and overall Sales payment metrics
+    // Load ALL sales to calculate overall Sales payment metrics
     const { data: allSales } = await supabase
       .from('sales')
       .select('total_amount, advance, payment_status, partial_payment, payment_date, date')
     
-    let monthlySalesPayments = 0
+    let overallSalesPayments = 0
     let overallSalesAmount = 0
     let overallSalesCompletedAmount = 0
     let overallSalesPendingAmount = 0
@@ -150,36 +144,26 @@ export function Dashboard() {
       if (isCompleted) {
         // 2. Overall Completed Amount: Total value of fully paid sales bills
         overallSalesCompletedAmount += gTotal
+        overallSalesPayments += gTotal
       } else {
         // 3. Overall Pending Amount: Total remaining balance across Pending & Partial Payment sales bills
         overallSalesPendingAmount += rem
         // 4. Overall Advance Received: Total advance/payment received for Sales bills that are still Pending or Partial Payment
         overallSalesAdvanceReceived += totalPaid
-      }
-
-      // Cash flow Sales Payments in current month
-      const payDate = s.payment_date || s.date
-      if (payDate >= startOfMonth && payDate <= endOfMonth) {
-        if (s.payment_status === 'Completed') {
-          monthlySalesPayments += gTotal
-        } else {
-          monthlySalesPayments += partPay
-        }
+        overallSalesPayments += partPay
       }
     })
 
-    // Load Worker Salaries (based on attendance status and employee daily wage in current month)
+    // Load Worker Salaries (based on attendance status and employee daily wage across all time)
     const { data: attendanceData } = await supabase
       .from('attendance')
       .select('employee_id, status')
-      .gte('date', startOfMonth)
-      .lte('date', endOfMonth)
 
     const { data: employeesData } = await supabase
       .from('employees')
       .select('id, daily_wage')
 
-    let monthlyWorkerSalary = 0
+    let overallWorkerSalary = 0
     if (attendanceData && employeesData) {
       const wageMap = new Map<string, number>()
       employeesData.forEach(e => wageMap.set(e.id, Number(e.daily_wage || 0)))
@@ -187,28 +171,26 @@ export function Dashboard() {
       attendanceData.forEach(att => {
         const dailyWage = wageMap.get(att.employee_id) || 0
         if (att.status === 'Present') {
-          monthlyWorkerSalary += dailyWage
+          overallWorkerSalary += dailyWage
         } else if (att.status === 'Half Day') {
-          monthlyWorkerSalary += dailyWage * 0.5
+          overallWorkerSalary += dailyWage * 0.5
         }
       })
     }
 
-    // Load Expenses in current month
-    let monthlyExpenses = 0
+    // Load Expenses overall
+    let overallExpenses = 0
     try {
       const { data: expensesData } = await supabase
         .from('expenses')
         .select('amount')
-        .gte('date', startOfMonth)
-        .lte('date', endOfMonth)
       
-      monthlyExpenses = expensesData?.reduce((sum, e) => sum + Number(e.amount), 0) || 0
+      overallExpenses = expensesData?.reduce((sum, e) => sum + Number(e.amount), 0) || 0
     } catch (e) {
       console.error("Expenses table not yet active:", e)
     }
 
-    const monthlyNetProfit = monthlySalesPayments - (monthlyPurchasePayments + monthlyWorkerSalary + monthlyExpenses)
+    const overallNetProfit = overallSalesAmount - (overallPaymentAmount + overallWorkerSalary + overallExpenses)
 
     setStats({
       todaysPurchase,
@@ -216,11 +198,11 @@ export function Dashboard() {
       totalShops: shopCount || 0,
       overallPending: overallPendingAmount,
       pendingShopsCount: pendingShopIds.size,
-      monthlySalesPayments,
-      monthlyPurchasePayments,
-      monthlyWorkerSalary,
-      monthlyExpenses,
-      monthlyNetProfit,
+      monthlySalesPayments: overallSalesAmount,
+      monthlyPurchasePayments: overallPaymentAmount,
+      monthlyWorkerSalary: overallWorkerSalary,
+      monthlyExpenses: overallExpenses,
+      monthlyNetProfit: overallNetProfit,
       overallPaymentAmount,
       overallCompletedAmount,
       overallPendingAmount,
@@ -275,7 +257,7 @@ export function Dashboard() {
         })}
       </div>
 
-      {/* Payment History & Monthly Profit/Loss Section Grid */}
+      {/* Payment History & Overall Profit/Loss Section Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {/* Payment History (Purchasing) Card */}
         <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
@@ -335,13 +317,13 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Monthly Profit/Loss Card */}
+        {/* Overall Profit/Loss Card */}
         <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
           <div className="bg-muted px-6 py-4 border-b flex justify-between items-center">
             <div className="flex items-center space-x-2">
               <Calendar className="w-5 h-5 text-muted-foreground" />
               <span className="font-bold text-sm text-foreground uppercase tracking-wider">
-                {lang === 'te' ? "ఈ నెల లాభ నష్టాల నివేదిక" : "Monthly Profit / Loss"}
+                {lang === 'te' ? "మొత్తం లాభ నష్టాల నివేదిక" : "Overall Profit / Loss"}
               </span>
             </div>
             <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isProfit ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -350,12 +332,12 @@ export function Dashboard() {
           </div>
           <div className="p-6 space-y-4">
             <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground font-medium">{lang === 'te' ? "మొత్తం అమ్మకాల చెల్లింపులు" : "Total Sales Payments"}</span>
-              <span className="font-semibold text-green-600">₹{formatInr(stats.monthlySalesPayments)}</span>
+              <span className="text-muted-foreground font-medium">{lang === 'te' ? "మొత్తం అమ్మకాల మొత్తం" : "Overall Sales Amount"}</span>
+              <span className="font-semibold text-green-600">₹{formatInr(stats.overallSalesAmount)}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground font-medium">{lang === 'te' ? "కొనుగోలు చెల్లింపులు" : "Purchase Payments"}</span>
-              <span className="font-semibold text-red-500">₹{formatInr(stats.monthlyPurchasePayments)}</span>
+              <span className="text-muted-foreground font-medium">{lang === 'te' ? "మొత్తం చెల్లింపు మొత్తం" : "Overall Payment Amount"}</span>
+              <span className="font-semibold text-red-500">₹{formatInr(stats.overallPaymentAmount)}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-muted-foreground font-medium">{lang === 'te' ? "సిబ్బంది జీతాలు" : "Worker Salary"}</span>

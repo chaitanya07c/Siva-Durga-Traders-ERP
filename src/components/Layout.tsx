@@ -7,7 +7,7 @@ const navItems = [
   { name: "Dashboard", te: "డ్యాష్‌బోర్డ్", path: "/", icon: LayoutDashboard },
   { name: "Shop Details", te: "దుకాణం వివరాలు", path: "/shops", icon: Store },
   { name: "Purchasing", te: "కొనుగోళ్లు", path: "/purchasing", icon: ShoppingCart },
-  { name: "Payments", te: "చెల్లింపులు", path: "/payments", icon: CreditCard },
+  { name: "Purchasing Payments", te: "కొనుగోళ్ల చెల్లింపులు", path: "/payments", icon: CreditCard },
   { name: "Loading", te: "లోడింగ్", path: "/loading", icon: Truck },
   { name: "Sales", te: "అమ్మకాలు", path: "/sales", icon: Banknote },
   { name: "Sales Payments", te: "అమ్మకాల చెల్లింపులు", path: "/sales-payments", icon: CreditCard },
