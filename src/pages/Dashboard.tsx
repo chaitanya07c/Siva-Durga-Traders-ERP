@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { supabase } from "@/lib/supabase"
 import { IndianRupee, Store, CreditCard, Users, Calendar, Wallet } from "lucide-react"
 import { useOutletContext } from "react-router-dom"
@@ -10,6 +10,8 @@ const formatInr = (value: number) => {
 
 export function Dashboard() {
   const { lang } = useOutletContext<{ lang: "en" | "te" }>()
+  const currentMonthKeyRef = useRef<string>("")
+
   const [stats, setStats] = useState({
     todaysPurchase: 0,
     todaysSales: 0,
@@ -33,74 +35,118 @@ export function Dashboard() {
 
   useEffect(() => {
     loadStats()
+
+    // Auto-refresh when a new month begins or window gains focus
+    const interval = setInterval(() => {
+      const checkNow = new Date()
+      const checkKey = `${checkNow.getFullYear()}-${checkNow.getMonth()}`
+      if (currentMonthKeyRef.current && currentMonthKeyRef.current !== checkKey) {
+        currentMonthKeyRef.current = checkKey
+        loadStats()
+      }
+    }, 60000)
+
+    const handleFocus = () => {
+      loadStats()
+    }
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', handleFocus)
+    }
   }, [])
 
   const loadStats = async () => {
-    const today = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    currentMonthKeyRef.current = `${now.getFullYear()}-${now.getMonth()}`
+    const today = now.toISOString().split('T')[0]
     
-    // Total Shops
+    // Automatically determine current month date range from system date
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
+
+    // 1. Total Shops
     const { count: shopCount } = await supabase.from('shops').select('*', { count: 'exact', head: true })
     
-    // Today's Purchases
+    // 2. Today's Purchases
     const { data: purchases } = await supabase.from('purchases').select('grand_total').eq('date', today)
     const todaysPurchase = purchases?.reduce((sum, p) => sum + Number(p.grand_total), 0) || 0
 
-    // Today's Sales
+    // 3. Today's Sales
     const { data: sales } = await supabase.from('sales').select('total_amount').eq('date', today)
     const todaysSales = sales?.reduce((sum, s) => sum + Number(s.total_amount), 0) || 0
 
-    // Load ALL purchases to calculate overall metrics, pendingShopsCount, and monthlyPurchasePayments
-    const { data: allPurchases } = await supabase
+    // 4. Overall Pending & Pending Shops Count across ALL purchases (lifetime metric for stat card)
+    const { data: allPurchasesLifetime } = await supabase
       .from('purchases')
-      .select('id, session_id, grand_total, advance, payment_status, session_partial_payment, payment_date, date, shop_id, shops(name)')
-    
+      .select('id, session_id, grand_total, advance, payment_status, session_partial_payment, shop_id')
+
     const pendingShopIds = new Set<string>()
+    let overallPendingAmountStatCard = 0
+
+    const lifetimePendingGroups = new Map<string, { grandTotal: number; partialPayment: number }>()
+
+    allPurchasesLifetime?.forEach(p => {
+      if (p.payment_status !== 'Completed') {
+        const key = p.session_id || p.id
+        if (!lifetimePendingGroups.has(key)) {
+          lifetimePendingGroups.set(key, {
+            grandTotal: 0,
+            partialPayment: Number(p.session_partial_payment || 0)
+          })
+        }
+        const g = lifetimePendingGroups.get(key)!
+        g.grandTotal += Number(p.grand_total || 0)
+        pendingShopIds.add(p.shop_id)
+      }
+    })
+
+    lifetimePendingGroups.forEach(g => {
+      overallPendingAmountStatCard += Math.max(0, g.grandTotal - g.partialPayment)
+    })
+
+    // -------------------------------------------------------------
+    // CURRENT MONTH PURCHASES FOR DASHBOARD CARDS
+    // -------------------------------------------------------------
+    const { data: monthPurchases } = await supabase
+      .from('purchases')
+      .select('id, session_id, grand_total, advance, payment_status, session_partial_payment, payment_date, date, shop_id')
+      .gte('date', startOfMonth)
+      .lte('date', endOfMonth)
+
     let overallPaymentAmount = 0
     let overallCompletedAmount = 0
 
-    // Group pending/non-completed bills by session_id || id
     const pendingGroups = new Map<string, {
-      shopName: string;
-      session_id: string;
       grandTotal: number;
       partialPayment: number;
       advanceSum: number;
-      bills: any[];
     }>()
 
-    allPurchases?.forEach(p => {
+    monthPurchases?.forEach(p => {
       const gTotal = Number(p.grand_total || 0)
       const adv = Number(p.advance || 0)
 
-      // 1. Overall Payment Amount: Total value of all purchase bills generated regardless of payment status
       overallPaymentAmount += gTotal
 
       if (p.payment_status === 'Completed') {
-        // 2. Overall Completed Amount: Total amount of bills that are fully paid
         overallCompletedAmount += gTotal
       } else {
-        // Active non-completed bills (Pending or Partial Payment)
         const key = p.session_id || p.id
-        const shopName = (p.shops as any)?.name || 'Unknown'
         if (!pendingGroups.has(key)) {
           pendingGroups.set(key, {
-            shopName,
-            session_id: key,
             grandTotal: 0,
             partialPayment: Number(p.session_partial_payment || 0),
-            advanceSum: 0,
-            bills: []
+            advanceSum: 0
           })
         }
         const g = pendingGroups.get(key)!
         g.grandTotal += gTotal
         g.advanceSum += adv
-        g.bills.push(p)
-        pendingShopIds.add(p.shop_id)
       }
     })
 
-    // 3. Overall Pending Amount & 4. Overall Advance Paid (Advance + Total Partial Amount Paid for non-completed bills)
     let overallPendingAmount = 0
     let overallAdvancePaid = 0
     pendingGroups.forEach(g => {
@@ -108,62 +154,53 @@ export function Dashboard() {
       overallAdvancePaid += (g.advanceSum + g.partialPayment)
     })
 
-    // Overall Purchase Payments (cash flow overall)
-    let overallPurchasePayments = 0
-    allPurchases?.forEach(p => {
-      if (p.payment_status === 'Completed') {
-        overallPurchasePayments += Number(p.grand_total)
-      } else {
-        overallPurchasePayments += Number(p.session_partial_payment || 0)
-      }
-    })
-
-    // Load ALL sales to calculate overall Sales payment metrics
-    const { data: allSales } = await supabase
+    // -------------------------------------------------------------
+    // CURRENT MONTH SALES FOR DASHBOARD CARDS
+    // -------------------------------------------------------------
+    const { data: monthSales } = await supabase
       .from('sales')
       .select('total_amount, advance, payment_status, partial_payment, payment_date, date')
-    
-    let overallSalesPayments = 0
+      .gte('date', startOfMonth)
+      .lte('date', endOfMonth)
+
     let overallSalesAmount = 0
     let overallSalesCompletedAmount = 0
     let overallSalesPendingAmount = 0
     let overallSalesAdvanceReceived = 0
 
-    allSales?.forEach(s => {
+    monthSales?.forEach(s => {
       const gTotal = Number(s.total_amount || 0)
       const adv = Number(s.advance || 0)
       const partPay = Number(s.partial_payment || 0)
       const totalPaid = adv + partPay
       const rem = Math.max(0, gTotal - totalPaid)
 
-      // 1. Overall Sales Amount: Total value of all sales bills generated
       overallSalesAmount += gTotal
 
       const isCompleted = s.payment_status === 'Completed' || rem === 0
 
       if (isCompleted) {
-        // 2. Overall Completed Amount: Total value of fully paid sales bills
         overallSalesCompletedAmount += gTotal
-        overallSalesPayments += gTotal
       } else {
-        // 3. Overall Pending Amount: Total remaining balance across Pending & Partial Payment sales bills
         overallSalesPendingAmount += rem
-        // 4. Overall Advance Received: Total advance/payment received for Sales bills that are still Pending or Partial Payment
         overallSalesAdvanceReceived += totalPaid
-        overallSalesPayments += partPay
       }
     })
 
-    // Load Worker Salaries (based on attendance status and employee daily wage across all time)
+    // -------------------------------------------------------------
+    // CURRENT MONTH WORKER SALARIES & EXPENSES
+    // -------------------------------------------------------------
     const { data: attendanceData } = await supabase
       .from('attendance')
       .select('employee_id, status')
+      .gte('date', startOfMonth)
+      .lte('date', endOfMonth)
 
     const { data: employeesData } = await supabase
       .from('employees')
       .select('id, daily_wage')
 
-    let overallWorkerSalary = 0
+    let monthlyWorkerSalary = 0
     if (attendanceData && employeesData) {
       const wageMap = new Map<string, number>()
       employeesData.forEach(e => wageMap.set(e.id, Number(e.daily_wage || 0)))
@@ -171,38 +208,39 @@ export function Dashboard() {
       attendanceData.forEach(att => {
         const dailyWage = wageMap.get(att.employee_id) || 0
         if (att.status === 'Present') {
-          overallWorkerSalary += dailyWage
+          monthlyWorkerSalary += dailyWage
         } else if (att.status === 'Half Day') {
-          overallWorkerSalary += dailyWage * 0.5
+          monthlyWorkerSalary += dailyWage * 0.5
         }
       })
     }
 
-    // Load Expenses overall
-    let overallExpenses = 0
+    let monthlyExpenses = 0
     try {
       const { data: expensesData } = await supabase
         .from('expenses')
         .select('amount')
+        .gte('date', startOfMonth)
+        .lte('date', endOfMonth)
       
-      overallExpenses = expensesData?.reduce((sum, e) => sum + Number(e.amount), 0) || 0
+      monthlyExpenses = expensesData?.reduce((sum, e) => sum + Number(e.amount), 0) || 0
     } catch (e) {
-      console.error("Expenses table not yet active:", e)
+      console.error("Expenses table read error:", e)
     }
 
-    const overallNetProfit = overallSalesAmount - (overallPaymentAmount + overallWorkerSalary + overallExpenses)
+    const monthlyNetProfit = overallSalesAmount - (overallPaymentAmount + monthlyWorkerSalary + monthlyExpenses)
 
     setStats({
       todaysPurchase,
       todaysSales,
       totalShops: shopCount || 0,
-      overallPending: overallPendingAmount,
+      overallPending: overallPendingAmountStatCard,
       pendingShopsCount: pendingShopIds.size,
       monthlySalesPayments: overallSalesAmount,
       monthlyPurchasePayments: overallPaymentAmount,
-      monthlyWorkerSalary: overallWorkerSalary,
-      monthlyExpenses: overallExpenses,
-      monthlyNetProfit: overallNetProfit,
+      monthlyWorkerSalary,
+      monthlyExpenses,
+      monthlyNetProfit,
       overallPaymentAmount,
       overallCompletedAmount,
       overallPendingAmount,
@@ -257,9 +295,9 @@ export function Dashboard() {
         })}
       </div>
 
-      {/* Payment History & Overall Profit/Loss Section Grid */}
+      {/* Payment History & Current Month Profit/Loss Section Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {/* Payment History (Purchasing) Card */}
+        {/* Payment History (Purchasing) Card - Current Month */}
         <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
           <div className="bg-muted px-6 py-4 border-b flex items-center space-x-2">
             <Wallet className="w-5 h-5 text-muted-foreground" />
@@ -288,7 +326,7 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Payment History (Sales) Card */}
+        {/* Payment History (Sales) Card - Current Month */}
         <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
           <div className="bg-muted px-6 py-4 border-b flex items-center space-x-2">
             <Wallet className="w-5 h-5 text-muted-foreground" />
@@ -317,7 +355,7 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Overall Profit/Loss Card */}
+        {/* Overall Profit/Loss Card - Current Month */}
         <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
           <div className="bg-muted px-6 py-4 border-b flex justify-between items-center">
             <div className="flex items-center space-x-2">

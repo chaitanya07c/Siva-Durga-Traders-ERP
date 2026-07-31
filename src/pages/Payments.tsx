@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet } from "lucide-react"
+import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet, Trash2, Edit2 } from "lucide-react"
 import { toast } from "sonner"
+import { addToRecycleBin } from "@/lib/recycleBin"
 import { 
   fetchBillBreakdowns, 
   generateCombinedPDF, 
@@ -537,6 +538,87 @@ export function Payments() {
     }
   }
 
+  // Delete Bill states and handler
+  const [deletingBill, setDeletingBill] = useState<BillBreakdown | null>(null)
+
+  const handleConfirmDeleteBill = async () => {
+    if (!deletingBill) return
+    const billToDelete = deletingBill
+    setDeletingBill(null)
+
+    try {
+      // 1. Fetch full purchase record and purchase_items
+      const { data: purchaseData } = await supabase
+        .from('purchases')
+        .select('*')
+        .eq('id', billToDelete.id)
+        .single()
+
+      const { data: itemsData } = await supabase
+        .from('purchase_items')
+        .select('*')
+        .eq('purchase_id', billToDelete.id)
+
+      if (!purchaseData) throw new Error("Purchase record not found")
+
+      // 2. Add to Recycle Bin
+      const shopName = detailsModal?.session.shop_name || 'Unknown Shop'
+      await addToRecycleBin({
+        id: crypto.randomUUID(),
+        type: 'purchase_bill',
+        item_id: billToDelete.id || purchaseData.id || '',
+        title: `Bill #${billToDelete.billNumber || 'N/A'} - ${shopName}`,
+        shop_name: shopName,
+        bill_number: String(billToDelete.billNumber || ''),
+        amount: billToDelete.grandTotal,
+        data: {
+          purchase: purchaseData,
+          purchase_items: itemsData || []
+        },
+        deleted_at: new Date().toISOString()
+      })
+
+      // 3. Delete purchase_items and purchase row from Supabase
+      await supabase.from('purchase_items').delete().eq('purchase_id', billToDelete.id)
+      await supabase.from('purchases').delete().eq('id', billToDelete.id)
+
+      toast.success("Bill moved to Recycle Bin!")
+
+      // 4. Reload main list & cards
+      await loadSessions()
+
+      // 5. Update or close detailsModal
+      if (detailsModal) {
+        const remainingBillIds = detailsModal.session.bill_ids.filter(id => id !== billToDelete.id)
+        if (remainingBillIds.length === 0) {
+          // No more bills in this session -> close modal automatically
+          setDetailsModal(null)
+        } else {
+          // Re-fetch remaining bills
+          const { data: remainingPurchases } = await supabase
+            .from('purchases')
+            .select('grand_total')
+            .in('id', remainingBillIds)
+
+          const newOverallTotal = remainingPurchases?.reduce((sum, p) => sum + Number(p.grand_total || 0), 0) || 0
+
+          const updatedSession = {
+            ...detailsModal.session,
+            overallTotal: newOverallTotal,
+            bill_ids: remainingBillIds,
+            billsCount: remainingBillIds.length
+          }
+
+          const { bills } = await fetchBillBreakdowns(updatedSession, lang)
+          setDetailsModal({ session: updatedSession, bills })
+        }
+      }
+    } catch (err: any) {
+      console.error("Error deleting bill:", err)
+      toast.error(err.message || "Failed to delete bill")
+    }
+  }
+
   const filteredSessions = groupedSessions.filter(s => {
     const matchesSearch = s.shop_name.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesCategory = s.shop_type === activeCategory
@@ -765,14 +847,39 @@ export function Payments() {
       {detailsModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-background w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-xl flex flex-col">
-            <div className="p-5 border-b flex justify-between items-center sticky top-0 bg-background z-10">
-              <div>
-                <h2 className="text-xl font-bold">Session Details</h2>
-                <p className="text-sm text-muted-foreground">{detailsModal.session.shop_name} • {formatDate(detailsModal.session.date)}</p>
+            {/* Header with Prominent Shop Name Banner */}
+            <div className="p-5 border-b sticky top-0 bg-background z-10 space-y-3">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-xl font-bold">{lang === 'te' ? "సెషన్ వివరాలు" : "Session Details"}</h2>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-muted-foreground">{lang === 'te' ? "మొత్తం బ్యాలెన్స్" : "Overall Total"}</div>
+                  <div className="text-2xl font-bold text-primary">₹{formatInr(detailsModal.session.overallTotal)}</div>
+                </div>
               </div>
-              <div className="text-right">
-                <div className="text-sm text-muted-foreground">Overall Total</div>
-                <div className="text-2xl font-bold text-primary">₹{formatInr(detailsModal.session.overallTotal)}</div>
+
+              {/* Shop Name & Session Info Banner */}
+              <div className="bg-primary/5 border border-primary/20 rounded-xl p-3.5 flex flex-wrap justify-between items-center gap-2">
+                <div>
+                  <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wider block">
+                    {lang === 'te' ? "దుకాణం పేరు:" : "Shop Name:"}
+                  </span>
+                  <span className="font-bold text-base text-foreground">
+                    {detailsModal.session.shop_name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs font-semibold text-muted-foreground">
+                  <div>
+                    <span className="text-muted-foreground">{lang === 'te' ? "తేదీ: " : "Date: "}</span>
+                    <span className="text-foreground font-bold">{formatDate(detailsModal.session.date)}</span>
+                  </div>
+                  {detailsModal.bills.length > 1 && (
+                    <span className="bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 px-2.5 py-0.5 rounded-full text-xs font-bold">
+                      {lang === 'te' ? `కంబైన్డ్ బిల్లులు: ${detailsModal.bills.length}` : `Combined Bills: ${detailsModal.bills.length}`}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             
@@ -808,15 +915,35 @@ export function Payments() {
                               {detailsModal.session.status === 'Pending' && (
                                 <button
                                   onClick={() => handleEditBillInitiate(bill)}
-                                  className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
+                                  className="text-blue-600 hover:text-blue-800 text-xs px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold flex items-center gap-1"
                                 >
-                                  Edit
+                                  <Edit2 className="w-3 h-3" /> Edit
                                 </button>
                               )}
+                              <button
+                                onClick={() => setDeletingBill(bill)}
+                                className="text-red-600 hover:text-red-800 text-xs px-2.5 py-1 rounded bg-red-50 hover:bg-red-100 border border-red-200 transition-colors font-bold flex items-center gap-1"
+                              >
+                                <Trash2 className="w-3 h-3" /> Delete
+                              </button>
                             </div>
                             <span>₹{formatInr(bill.grandTotal)}</span>
                           </div>
-                          <div className="p-4">
+                          <div className="p-4 space-y-3">
+                            {/* Shop Name & Bill Date Sub-Header */}
+                            <div className="flex flex-wrap justify-between items-center bg-slate-50 border rounded-lg p-2.5 px-3 text-xs">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground font-medium">{lang === 'te' ? "దుకాణం పేరు:" : "Shop Name:"}</span>
+                                <span className="font-bold text-foreground">
+                                  {bill.shop ? (lang === 'te' && bill.shop.name_te ? bill.shop.name_te : bill.shop.name) : detailsModal.session.shop_name}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground font-medium">{lang === 'te' ? "బిల్లు తేదీ:" : "Bill Date:"}</span>
+                                <span className="font-bold text-foreground">{formatDate(bill.date)}</span>
+                              </div>
+                            </div>
+
                             <div className="overflow-x-auto">
                               <table className="w-full text-sm">
                                 <thead className="text-muted-foreground border-b text-left">
@@ -1194,6 +1321,39 @@ export function Payments() {
                 className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-sm"
               >
                 Save Updates
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Bill Confirmation Modal */}
+      {deletingBill && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-background w-full max-w-md rounded-2xl shadow-xl overflow-hidden p-6 text-center space-y-4">
+            <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h2 className="text-xl font-bold text-foreground">
+              {lang === 'te' ? "బిల్లు తొలగింపు నిర్ధారణ" : "Delete Bill Confirmation"}
+            </h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {lang === 'te'
+                ? `మీరు ఈ బిల్లు #${deletingBill.billNumber || ''} (అమౌంట్: ₹${formatInr(deletingBill.grandTotal)}) ని తొలగించాలనుకుంటున్నారా? ఇది రీసైకిల్ బిన్‌కి తరలించబడుతుంది మరియు అన్ని లెక్కలు అప్‌డేట్ అవుతాయి.`
+                : `Are you sure you want to delete Bill #${deletingBill.billNumber || ''} (Amount: ₹${formatInr(deletingBill.grandTotal)})? This action will move the bill to the Recycle Bin and recalculate session totals.`}
+            </p>
+            <div className="pt-2 flex gap-3">
+              <button
+                onClick={() => setDeletingBill(null)}
+                className="flex-1 py-2.5 border rounded-xl font-semibold hover:bg-slate-100 transition-colors text-sm"
+              >
+                {t("cancel", lang)}
+              </button>
+              <button
+                onClick={handleConfirmDeleteBill}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-colors shadow-sm text-sm"
+              >
+                {lang === 'te' ? "తొలగించు" : "Delete Bill"}
               </button>
             </div>
           </div>

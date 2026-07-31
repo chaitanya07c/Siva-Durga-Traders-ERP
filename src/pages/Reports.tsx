@@ -28,6 +28,7 @@ export function Reports() {
   const [hasNoData, setHasNoData] = useState(false)
   const [isInvalidRange, setIsInvalidRange] = useState(false)
 
+  // Period / Date Range Stats
   const [stats, setStats] = useState({
     // Payment History Purchasing
     purchasingOverallPayment: 0,
@@ -49,12 +50,34 @@ export function Reports() {
     periodNetProfit: 0
   })
 
+  // Lifetime / Overall Summary Stats
+  const [overallStats, setOverallStats] = useState({
+    purchasingOverallPayment: 0,
+    purchasingOverallCompleted: 0,
+    purchasingOverallPending: 0,
+    purchasingOverallAdvance: 0,
+
+    salesOverallSalesAmount: 0,
+    salesOverallCompleted: 0,
+    salesOverallPending: 0,
+    salesOverallAdvance: 0,
+
+    overallSalesPayments: 0,
+    overallPurchasePayments: 0,
+    overallWorkerSalary: 0,
+    overallExpenses: 0,
+    overallNetProfit: 0
+  })
+
   useEffect(() => {
     fetchReportData()
   }, [startDate, endDate])
 
   const fetchReportData = async () => {
     if (!startDate || !endDate) return
+
+    // Always fetch overall/lifetime data regardless of date selection validity
+    fetchOverallLifetimeStats()
 
     // Validation: Start Date cannot be greater than End Date
     if (startDate > endDate) {
@@ -240,6 +263,133 @@ export function Reports() {
     }
   }
 
+  const fetchOverallLifetimeStats = async () => {
+    try {
+      // 1. ALL PURCHASES (LIFETIME)
+      const { data: allPurchases } = await supabase
+        .from('purchases')
+        .select('id, session_id, grand_total, advance, payment_status, session_partial_payment')
+
+      let lifetimePurchasingPayment = 0
+      let lifetimePurchasingCompleted = 0
+
+      const lifetimePendingGroups = new Map<string, {
+        grandTotal: number;
+        partialPayment: number;
+        advanceSum: number;
+      }>()
+
+      allPurchases?.forEach(p => {
+        const gTotal = Number(p.grand_total || 0)
+        const adv = Number(p.advance || 0)
+
+        lifetimePurchasingPayment += gTotal
+
+        if (p.payment_status === 'Completed') {
+          lifetimePurchasingCompleted += gTotal
+        } else {
+          const key = p.session_id || p.id
+          if (!lifetimePendingGroups.has(key)) {
+            lifetimePendingGroups.set(key, {
+              grandTotal: 0,
+              partialPayment: Number(p.session_partial_payment || 0),
+              advanceSum: 0
+            })
+          }
+          const g = lifetimePendingGroups.get(key)!
+          g.grandTotal += gTotal
+          g.advanceSum += adv
+        }
+      })
+
+      let lifetimePurchasingPending = 0
+      let lifetimePurchasingAdvance = 0
+      lifetimePendingGroups.forEach(g => {
+        lifetimePurchasingPending += Math.max(0, g.grandTotal - g.partialPayment)
+        lifetimePurchasingAdvance += (g.advanceSum + g.partialPayment)
+      })
+
+      // 2. ALL SALES (LIFETIME)
+      const { data: allSales } = await supabase
+        .from('sales')
+        .select('total_amount, advance, payment_status, partial_payment')
+
+      let lifetimeSalesAmount = 0
+      let lifetimeSalesCompleted = 0
+      let lifetimeSalesPending = 0
+      let lifetimeSalesAdvance = 0
+
+      allSales?.forEach(s => {
+        const gTotal = Number(s.total_amount || 0)
+        const adv = Number(s.advance || 0)
+        const partPay = Number(s.partial_payment || 0)
+        const totalPaid = adv + partPay
+        const rem = Math.max(0, gTotal - totalPaid)
+
+        lifetimeSalesAmount += gTotal
+
+        const isCompleted = s.payment_status === 'Completed' || rem === 0
+
+        if (isCompleted) {
+          lifetimeSalesCompleted += gTotal
+        } else {
+          lifetimeSalesPending += rem
+          lifetimeSalesAdvance += totalPaid
+        }
+      })
+
+      // 3. ALL ATTENDANCE & EMPLOYEES (LIFETIME)
+      const { data: allAttendance } = await supabase.from('attendance').select('employee_id, status')
+      const { data: allEmployees } = await supabase.from('employees').select('id, daily_wage')
+
+      let lifetimeWorkerSalary = 0
+      if (allAttendance && allEmployees) {
+        const wageMap = new Map<string, number>()
+        allEmployees.forEach(e => wageMap.set(e.id, Number(e.daily_wage || 0)))
+
+        allAttendance.forEach(att => {
+          const dailyWage = wageMap.get(att.employee_id) || 0
+          if (att.status === 'Present') {
+            lifetimeWorkerSalary += dailyWage
+          } else if (att.status === 'Half Day') {
+            lifetimeWorkerSalary += dailyWage * 0.5
+          }
+        })
+      }
+
+      // 4. ALL EXPENSES (LIFETIME)
+      let lifetimeExpenses = 0
+      try {
+        const { data: allExpensesData } = await supabase.from('expenses').select('amount')
+        lifetimeExpenses = allExpensesData?.reduce((sum, e) => sum + Number(e.amount), 0) || 0
+      } catch (e) {
+        console.error("Expenses lifetime fetch error:", e)
+      }
+
+      const lifetimeNetProfit = lifetimeSalesAmount - (lifetimePurchasingPayment + lifetimeWorkerSalary + lifetimeExpenses)
+
+      setOverallStats({
+        purchasingOverallPayment: lifetimePurchasingPayment,
+        purchasingOverallCompleted: lifetimePurchasingCompleted,
+        purchasingOverallPending: lifetimePurchasingPending,
+        purchasingOverallAdvance: lifetimePurchasingAdvance,
+
+        salesOverallSalesAmount: lifetimeSalesAmount,
+        salesOverallCompleted: lifetimeSalesCompleted,
+        salesOverallPending: lifetimeSalesPending,
+        salesOverallAdvance: lifetimeSalesAdvance,
+
+        overallSalesPayments: lifetimeSalesAmount,
+        overallPurchasePayments: lifetimePurchasingPayment,
+        overallWorkerSalary: lifetimeWorkerSalary,
+        overallExpenses: lifetimeExpenses,
+        overallNetProfit: lifetimeNetProfit
+      })
+    } catch (e) {
+      console.error("Error fetching overall lifetime stats:", e)
+    }
+  }
+
   // -------------------------------------------------------------
   // PDF EXPORT
   // -------------------------------------------------------------
@@ -410,6 +560,7 @@ export function Reports() {
   }
 
   const isProfit = stats.periodNetProfit >= 0
+  const isOverallProfit = overallStats.overallNetProfit >= 0
 
   return (
     <div className="space-y-6">
@@ -510,7 +661,7 @@ export function Reports() {
           {lang === 'te' ? "డేటా లోడ్ అవుతోంది..." : "Loading report data..."}
         </div>
       ) : (
-        /* Three Dashboard-style Cards Grid */
+        /* Date-Range Report Cards Grid */
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {/* 1. Payment History (Purchasing) Card */}
           <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
@@ -611,6 +762,119 @@ export function Reports() {
           </div>
         </div>
       )}
+
+      {/* OVERALL SUMMARY SECTION (LIFETIME DATA - NOT AFFECTED BY DATE RANGE FILTER) */}
+      <div className="space-y-4 pt-6 border-t">
+        <div className="flex items-center space-x-2">
+          <Wallet className="w-5 h-5 text-purple-600" />
+          <h2 className="text-lg font-bold text-foreground">
+            {t("overallSummary", lang)}
+          </h2>
+          <span className="text-xs text-muted-foreground">
+            ({lang === 'te' ? "మొత్తం జీవితకాల సమాచారం" : "Lifetime overall metrics"})
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {/* 1. Overall Payment History (Purchasing) Card */}
+          <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
+            <div className="bg-muted px-6 py-4 border-b flex items-center space-x-2">
+              <Wallet className="w-5 h-5 text-muted-foreground" />
+              <span className="font-bold text-sm text-foreground uppercase tracking-wider">
+                {t("paymentHistoryPurchasing", lang)}
+              </span>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{t("overallPaymentAmount", lang)}</span>
+                <span className="font-semibold text-foreground">₹{formatInr(overallStats.purchasingOverallPayment)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{t("overallCompletedAmount", lang)}</span>
+                <span className="font-semibold text-green-600">₹{formatInr(overallStats.purchasingOverallCompleted)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{t("overallPendingAmount", lang)}</span>
+                <span className="font-semibold text-orange-500">₹{formatInr(overallStats.purchasingOverallPending)}</span>
+              </div>
+              <div className="h-px bg-slate-200 dark:bg-slate-800 pt-1"></div>
+              <div className="flex justify-between items-center text-sm pt-1">
+                <span className="text-muted-foreground font-medium">{t("overallAdvancePaid", lang)}</span>
+                <span className="font-semibold text-purple-600">₹{formatInr(overallStats.purchasingOverallAdvance)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Overall Payment History (Sales) Card */}
+          <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
+            <div className="bg-muted px-6 py-4 border-b flex items-center space-x-2">
+              <Wallet className="w-5 h-5 text-muted-foreground" />
+              <span className="font-bold text-sm text-foreground uppercase tracking-wider">
+                {t("paymentHistorySales", lang)}
+              </span>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{t("overallSalesAmount", lang)}</span>
+                <span className="font-semibold text-foreground">₹{formatInr(overallStats.salesOverallSalesAmount)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{t("overallCompletedAmount", lang)}</span>
+                <span className="font-semibold text-green-600">₹{formatInr(overallStats.salesOverallCompleted)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{t("overallPendingAmount", lang)}</span>
+                <span className="font-semibold text-orange-500">₹{formatInr(overallStats.salesOverallPending)}</span>
+              </div>
+              <div className="h-px bg-slate-200 dark:bg-slate-800 pt-1"></div>
+              <div className="flex justify-between items-center text-sm pt-1">
+                <span className="text-muted-foreground font-medium">{t("overallAdvanceReceived", lang)}</span>
+                <span className="font-semibold text-purple-600">₹{formatInr(overallStats.salesOverallAdvance)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Overall Profit / Loss Card */}
+          <div className="bg-card border rounded-2xl shadow-md overflow-hidden">
+            <div className="bg-muted px-6 py-4 border-b flex justify-between items-center">
+              <div className="flex items-center space-x-2">
+                <Calendar className="w-5 h-5 text-muted-foreground" />
+                <span className="font-bold text-sm text-foreground uppercase tracking-wider">
+                  {lang === 'te' ? "మొత్తం లాభ నష్టాల నివేదిక" : "Overall Profit / Loss"}
+                </span>
+              </div>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isOverallProfit ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                {isOverallProfit ? (lang === 'te' ? 'లాభం' : 'Profit') : (lang === 'te' ? 'నష్టం' : 'Loss')}
+              </span>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{lang === 'te' ? "మొత్తం అమ్మకాల మొత్తం" : "Overall Sales Amount"}</span>
+                <span className="font-semibold text-green-600">₹{formatInr(overallStats.overallSalesPayments)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{lang === 'te' ? "మొత్తం చెల్లింపు మొత్తం" : "Overall Payment Amount"}</span>
+                <span className="font-semibold text-red-500">₹{formatInr(overallStats.overallPurchasePayments)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{lang === 'te' ? "సిబ్బంది జీతాలు" : "Worker Salary"}</span>
+                <span className="font-semibold text-slate-700">₹{formatInr(overallStats.overallWorkerSalary)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">{lang === 'te' ? "ఖర్చులు" : "Expenses"}</span>
+                <span className="font-semibold text-slate-700">₹{formatInr(overallStats.overallExpenses)}</span>
+              </div>
+              <div className="h-px bg-slate-200 dark:bg-slate-800 pt-1"></div>
+              <div className="flex justify-between items-center pt-2">
+                <span className="font-bold text-base text-foreground">{lang === 'te' ? "నికర లాభం / నష్టం" : "Net Profit/Loss"}</span>
+                <span className={`text-lg font-extrabold ${isOverallProfit ? 'text-green-600 animate-pulse' : 'text-red-600'}`}>
+                  ₹{formatInr(overallStats.overallNetProfit)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

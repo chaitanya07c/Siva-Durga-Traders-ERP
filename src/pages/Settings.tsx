@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react"
-import { Moon, Sun, Plus, Edit2, Trash2, Package, Globe } from "lucide-react"
+import { Moon, Sun, Plus, Edit2, Trash2, Package, Globe, RotateCcw, AlertTriangle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import type { Material } from "@/types/database"
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
+import { getRecycleBinItems, restoreFromRecycleBin, deletePermanentlyFromRecycleBin, type RecycleBinItem } from "@/lib/recycleBin"
+import { formatDate } from "@/lib/utils"
+
+const formatInr = (val: number) => new Intl.NumberFormat('en-IN').format(val)
 
 export function Settings() {
-  const [activeTab, setActiveTab] = useState<"general" | "items">("general")
+  const [activeTab, setActiveTab] = useState<"general" | "items" | "recycle_bin">("general")
   const [theme, setTheme] = useState<"light" | "dark">("light")
   const { lang, setLang } = useOutletContext<{ lang: "en" | "te", setLang: (lang: "en" | "te") => void }>()
 
@@ -23,12 +27,27 @@ export function Settings() {
   const [formCategoryTe, setFormCategoryTe] = useState("")
   const [formDefaultCost, setFormDefaultCost] = useState("")
 
+  // Recycle Bin State
+  const [recycleBinItems, setRecycleBinItems] = useState<RecycleBinItem[]>([])
+  const [loadingRecycleBin, setLoadingRecycleBin] = useState(false)
+  const [confirmModal, setConfirmModal] = useState<{
+    action: 'restore' | 'delete',
+    item: RecycleBinItem
+  } | null>(null)
+
   useEffect(() => {
     if (document.documentElement.classList.contains("dark")) {
       setTheme("dark")
     }
     loadMaterials()
+    loadRecycleBin()
   }, [])
+
+  useEffect(() => {
+    if (activeTab === "recycle_bin") {
+      loadRecycleBin()
+    }
+  }, [activeTab])
 
   const toggleTheme = () => {
     if (theme === "light") {
@@ -43,6 +62,42 @@ export function Settings() {
   const loadMaterials = async () => {
     const { data } = await supabase.from('materials').select('*').order('category').order('name')
     if (data) setMaterials(data)
+  }
+
+  const loadRecycleBin = async () => {
+    setLoadingRecycleBin(true)
+    try {
+      const items = await getRecycleBinItems()
+      setRecycleBinItems(items)
+    } catch (e) {
+      console.error("Error loading recycle bin:", e)
+    } finally {
+      setLoadingRecycleBin(false)
+    }
+  }
+
+  const handleRestoreItem = async (item: RecycleBinItem) => {
+    try {
+      await restoreFromRecycleBin(item.id)
+      toast.success(lang === 'te' ? "బిల్లు విజ‌య‌వంతంగా రీస్టోర్ చేయ‌బ‌డింది!" : "Bill restored successfully!")
+      setConfirmModal(null)
+      loadRecycleBin()
+    } catch (err: any) {
+      console.error("Error restoring bill:", err)
+      toast.error(err.message || "Error restoring bill")
+    }
+  }
+
+  const handlePermanentDelete = async (item: RecycleBinItem) => {
+    try {
+      await deletePermanentlyFromRecycleBin(item.id)
+      toast.success(lang === 'te' ? "శాశ్వతంగా తొలగించబడింది" : "Permanently deleted")
+      setConfirmModal(null)
+      loadRecycleBin()
+    } catch (err: any) {
+      console.error("Error permanently deleting bill:", err)
+      toast.error(err.message || "Error deleting bill")
+    }
   }
 
   const handleSaveItem = async (e: React.FormEvent) => {
@@ -106,7 +161,6 @@ export function Settings() {
     setIsModalOpen(true)
   }
 
-  // Get unique categories for dropdown
   const categories = Array.from(new Set(materials.map(m => m.category)))
   const filteredMaterials = materials.filter(m => 
     m.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -118,7 +172,7 @@ export function Settings() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Settings</h1>
+        <h1 className="text-2xl font-bold">{t("settings", lang)}</h1>
       </div>
 
       <div className="flex flex-col md:flex-row gap-6">
@@ -128,29 +182,36 @@ export function Settings() {
             onClick={() => setActiveTab("general")}
             className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-colors ${activeTab === "general" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
           >
-            General Settings
+            {t("generalSettings", lang)}
           </button>
           <button 
             onClick={() => setActiveTab("items")}
             className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-colors flex items-center ${activeTab === "items" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
           >
-            <Package className="w-4 h-4 mr-2" /> Sales Items
+            <Package className="w-4 h-4 mr-2" /> {t("salesItems", lang)}
+          </button>
+          <button 
+            onClick={() => setActiveTab("recycle_bin")}
+            className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-colors flex items-center ${activeTab === "recycle_bin" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+          >
+            <Trash2 className="w-4 h-4 mr-2" /> {t("recycleBin", lang)}
           </button>
         </div>
 
         {/* Content Area */}
         <div className="flex-1 bg-card rounded-xl border shadow-sm min-h-[500px]">
           
+          {/* GENERAL SETTINGS TAB */}
           {activeTab === "general" && (
             <div className="p-6 space-y-8">
               <div>
                 <h2 className="text-lg font-semibold mb-4 border-b pb-2 flex items-center gap-2">
-                  <Globe className="w-5 h-5 text-primary" /> Language
+                  <Globe className="w-5 h-5 text-primary" /> {t("appLanguage", lang)}
                 </h2>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-medium">Application Language</p>
-                    <p className="text-sm text-muted-foreground">Select your preferred language for the application interface.</p>
+                    <p className="font-medium">{t("appLanguage", lang)}</p>
+                    <p className="text-sm text-muted-foreground">{t("appLanguageDesc", lang)}</p>
                   </div>
                   <div className="relative">
                     <select
@@ -171,11 +232,11 @@ export function Settings() {
               </div>
 
               <div>
-                <h2 className="text-lg font-semibold mb-4 border-b pb-2">Appearance</h2>
+                <h2 className="text-lg font-semibold mb-4 border-b pb-2">{t("appTheme", lang)}</h2>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-medium">Application Theme</p>
-                    <p className="text-sm text-muted-foreground">Switch between light and dark mode for the application interface.</p>
+                    <p className="font-medium">{t("appTheme", lang)}</p>
+                    <p className="text-sm text-muted-foreground">{t("appThemeDesc", lang)}</p>
                   </div>
                   <button 
                     onClick={toggleTheme}
@@ -188,7 +249,7 @@ export function Settings() {
               </div>
 
               <div>
-                <h2 className="text-lg font-semibold mb-4 border-b pb-2">Database Connection</h2>
+                <h2 className="text-lg font-semibold mb-4 border-b pb-2">{t("dbConnection", lang)}</h2>
                 <div className="space-y-2">
                   <p className="text-sm"><span className="font-medium">Status:</span> <span className="text-green-600 font-bold">Connected (Supabase)</span></p>
                   <p className="text-sm"><span className="font-medium">URL:</span> {import.meta.env.VITE_SUPABASE_URL}</p>
@@ -196,7 +257,7 @@ export function Settings() {
               </div>
 
               <div>
-                <h2 className="text-lg font-semibold mb-4 border-b pb-2">System Information</h2>
+                <h2 className="text-lg font-semibold mb-4 border-b pb-2">{t("sysInfo", lang)}</h2>
                 <div className="space-y-2 text-sm text-muted-foreground">
                   <p>Siva Durga Traders ERP v1.0.0</p>
                   <p>Developed with React & Supabase</p>
@@ -205,6 +266,7 @@ export function Settings() {
             </div>
           )}
 
+          {/* SALES ITEMS TAB */}
           {activeTab === "items" && (
             <div className="p-6 space-y-6">
               <div className="flex justify-between items-center">
@@ -224,7 +286,7 @@ export function Settings() {
 
               <div className="border rounded-lg overflow-x-auto">
                 <table className="w-full text-sm text-left">
-              <thead className="bg-muted">
+                  <thead className="bg-muted">
                     <tr>
                       <th className="px-4 py-3">{t("category", lang)}</th>
                       <th className="px-4 py-3">{t("name", lang)}</th>
@@ -253,8 +315,150 @@ export function Settings() {
             </div>
           )}
 
+          {/* RECYCLE BIN TAB */}
+          {activeTab === "recycle_bin" && (
+            <div className="p-6 space-y-6">
+              <div className="flex justify-between items-center border-b pb-4">
+                <div>
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <Trash2 className="w-5 h-5 text-red-500" />
+                    {t("recycleBin", lang)}
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {lang === 'te'
+                      ? "తొలగించబడిన బిల్లులను నిర్వహించండి. రీస్టోర్ చేయడంతో అన్ని విభాగాలలో డేటా తిరిగి వస్తుంది."
+                      : "Manage deleted bills. Restoring a bill recovers all related records across Purchasing, Payments, Dashboard, Reports, and Stock."}
+                  </p>
+                </div>
+                <button
+                  onClick={loadRecycleBin}
+                  className="text-xs font-semibold text-primary hover:bg-primary/10 px-3 py-1.5 rounded-lg border border-primary/20 transition-colors"
+                >
+                  {lang === 'te' ? "రిఫ్రెష్" : "Refresh"}
+                </button>
+              </div>
+
+              {loadingRecycleBin ? (
+                <div className="py-12 text-center text-muted-foreground text-sm">
+                  {lang === 'te' ? "డేటా లోడ్ అవుతోంది..." : "Loading recycle bin..."}
+                </div>
+              ) : recycleBinItems.length === 0 ? (
+                <div className="py-12 text-center border-2 border-dashed rounded-xl bg-muted/20 space-y-2">
+                  <Trash2 className="w-8 h-8 text-muted-foreground mx-auto opacity-50" />
+                  <p className="text-sm font-semibold text-muted-foreground">
+                    {t("emptyRecycleBin", lang)}
+                  </p>
+                </div>
+              ) : (
+                <div className="border rounded-xl overflow-x-auto shadow-sm">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">{lang === 'te' ? "దుకాణం పేరు" : "Shop Name"}</th>
+                        <th className="px-4 py-3 font-semibold">{lang === 'te' ? "బిల్ సంఖ్య" : "Bill Number"}</th>
+                        <th className="px-4 py-3 font-semibold">{t("deletedDate", lang)}</th>
+                        <th className="px-4 py-3 font-semibold text-right">{lang === 'te' ? "మొత్తం అమౌంట్" : "Amount"}</th>
+                        <th className="px-4 py-3 font-semibold text-center">{t("actions", lang)}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {recycleBinItems.map((item) => (
+                        <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-3.5 font-bold text-foreground">
+                            {item.shop_name}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground font-medium">
+                            {item.bill_number ? `#${item.bill_number}` : (item.title || 'N/A')}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
+                            {formatDate(item.deleted_at)} {new Date(item.deleted_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="px-4 py-3 text-right font-extrabold text-foreground">
+                            ₹{formatInr(item.amount)}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => setConfirmModal({ action: 'restore', item })}
+                                className="bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center transition-colors shadow-sm"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                                {t("restore", lang)}
+                              </button>
+                              <button
+                                onClick={() => setConfirmModal({ action: 'delete', item })}
+                                className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center transition-colors shadow-sm"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 mr-1" />
+                                {t("deletePermanently", lang)}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
+
+      {/* Recycle Bin Action Confirmation Modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-background w-full max-w-md rounded-2xl shadow-xl overflow-hidden p-6 text-center space-y-4">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${
+              confirmModal.action === 'restore' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+            }`}>
+              {confirmModal.action === 'restore' ? <RotateCcw className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
+            </div>
+            
+            <h2 className="text-xl font-bold text-foreground">
+              {confirmModal.action === 'restore' 
+                ? (lang === 'te' ? "బిల్లును రీస్టోర్ చేయాలా?" : "Restore Bill") 
+                : (lang === 'te' ? "శాశ్వతంగా తొలగించాలా?" : "Delete Permanently")}
+            </h2>
+
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {confirmModal.action === 'restore'
+                ? (lang === 'te'
+                    ? `${confirmModal.item.shop_name} కొరకు బిల్లు #${confirmModal.item.bill_number || ''} ని తిరిగి రీస్టోర్ చేయాలనుకుంటున్నారా? ఇది కొనుగోళ్లు, చెల్లింపులు, డ్యాష్‌బోర్డ్, నివేదికలు మరియు స్టాక్ డేటాలో తిరిగి వస్తుంది.`
+                    : `Are you sure you want to restore Bill #${confirmModal.item.bill_number || ''} for ${confirmModal.item.shop_name}? All records will be automatically recovered across Purchasing, Payments, Dashboard, Reports, and Stock.`)
+                : (lang === 'te'
+                    ? `మీరు ఈ బిల్లును శాశ్వతంగా తొలగించాలనుకుంటున్నారా? ఈ చర్యను రద్దు చేయలేరు.`
+                    : `Are you sure you want to permanently delete Bill #${confirmModal.item.bill_number || ''}? This action cannot be undone.`)}
+            </p>
+
+            <div className="pt-2 flex gap-3">
+              <button
+                onClick={() => setConfirmModal(null)}
+                className="flex-1 py-2.5 border rounded-xl font-semibold hover:bg-slate-100 transition-colors text-sm"
+              >
+                {t("cancel", lang)}
+              </button>
+              
+              {confirmModal.action === 'restore' ? (
+                <button
+                  onClick={() => handleRestoreItem(confirmModal.item)}
+                  className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold transition-colors shadow-sm text-sm"
+                >
+                  {t("restore", lang)}
+                </button>
+              ) : (
+                <button
+                  onClick={() => handlePermanentDelete(confirmModal.item)}
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-colors shadow-sm text-sm"
+                >
+                  {t("deletePermanently", lang)}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Item Modal */}
       {isModalOpen && (
