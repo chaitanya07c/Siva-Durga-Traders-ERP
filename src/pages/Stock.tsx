@@ -4,7 +4,7 @@ import { Calendar, Boxes, TrendingUp, AlertCircle, Info, Download, FileSpreadshe
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import jsPDF from "jspdf"
-import "jspdf-autotable"
+import autoTable from "jspdf-autotable"
 import * as XLSX from "xlsx"
 import { toast } from "sonner"
 
@@ -277,8 +277,7 @@ export function Stock() {
         return
       }
 
-      // @ts-ignore
-      doc.autoTable({
+      autoTable(doc, {
         head: [['Item Name', qtyColHeader, 'Unit']],
         body: tableRows,
         startY: y,
@@ -310,8 +309,7 @@ export function Stock() {
         margin: { left: 15, right: 15 }
       })
 
-      // @ts-ignore
-      y = doc.lastAutoTable.finalY + 10
+      y = ((doc as any).lastAutoTable?.finalY || (y + 40)) + 10
     }
 
     addStockSection(`Period ${activeTab} Stock (${startFmt} to ${endFmt})`, rangeData)

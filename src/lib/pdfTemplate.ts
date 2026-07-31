@@ -1,5 +1,5 @@
 import jsPDF from "jspdf"
-import "jspdf-autotable"
+import autoTable from "jspdf-autotable"
 import { toast } from "sonner"
 import { formatDate } from "./utils"
 
@@ -466,8 +466,7 @@ export const generateTablePDF = async (
       y += (data.metadata.length * 5) + 5
     }
 
-    // @ts-ignore
-    doc.autoTable({
+    autoTable(doc, {
       head: data.tableHead,
       body: data.tableBody,
       startY: y,

@@ -4,7 +4,7 @@ import { Calendar, Wallet, AlertCircle, Info, Download, FileSpreadsheet, Printer
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import jsPDF from "jspdf"
-import "jspdf-autotable"
+import autoTable from "jspdf-autotable"
 import * as XLSX from "xlsx"
 import { toast } from "sonner"
 
@@ -443,8 +443,7 @@ export function Reports() {
       doc.text(title, 15, y)
       y += 4
 
-      // @ts-ignore
-      doc.autoTable({
+      autoTable(doc, {
         head: [['Metric', 'Amount']],
         body: dataRows,
         startY: y,
@@ -475,8 +474,7 @@ export function Reports() {
         margin: { left: 15, right: 15 }
       })
 
-      // @ts-ignore
-      y = doc.lastAutoTable.finalY + 10
+      y = ((doc as any).lastAutoTable?.finalY || (y + 40)) + 10
     }
 
     // Section 1: Payment History (Purchasing)

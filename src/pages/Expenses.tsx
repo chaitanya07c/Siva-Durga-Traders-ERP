@@ -114,29 +114,34 @@ export function Expenses() {
   })
 
   // --- EXPORTS ---
-  const exportPDF = () => {
+  const exportPDF = (action: 'download' | 'print' = 'download') => {
+    const totalAmount = filteredExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
     const metadata = startDate || endDate 
-      ? [`Range: ${startDate ? formatDate(startDate) : 'Start'} to ${endDate ? formatDate(endDate) : 'End'}`]
-      : undefined
+      ? [`Date Range: ${startDate ? formatDate(startDate) : 'Start'} to ${endDate ? formatDate(endDate) : 'End'}`, `Total Expenses: Rs ${new Intl.NumberFormat('en-IN').format(totalAmount)}`]
+      : [`Total Expenses: Rs ${new Intl.NumberFormat('en-IN').format(totalAmount)}`]
 
     const head = [['S.No.', 'Date', 'Category', 'Description', 'Amount (Rs)', 'Remarks']]
-    const body = filteredExpenses.map((exp, index) => [
+    const body: any[][] = filteredExpenses.map((exp, index) => [
       index + 1,
       formatDate(exp.date),
       exp.category,
       exp.description,
-      exp.amount,
+      `Rs ${new Intl.NumberFormat('en-IN').format(exp.amount)}`,
       exp.remarks || '-'
     ])
+
+    if (body.length > 0) {
+      body.push(['', '', '', 'TOTAL AMOUNT', `Rs ${new Intl.NumberFormat('en-IN').format(totalAmount)}`, ''])
+    }
 
     generateTablePDF({
       title: "EXPENSES REPORT",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
-      filename: "Expenses.pdf",
+      filename: `Expenses_${new Date().toISOString().split('T')[0]}.pdf`,
       metadata,
       tableHead: head,
       tableBody: body
-    }, 'download')
+    }, action)
   }
 
   const exportExcel = () => {
@@ -239,13 +244,13 @@ export function Expenses() {
           </div>
 
           <div className="flex gap-2">
-            <button onClick={exportPDF} className="bg-red-600 text-white px-4 py-2 rounded text-sm flex items-center hover:bg-red-700 shadow-sm font-medium">
+            <button onClick={() => exportPDF('download')} className="bg-red-600 text-white px-4 py-2 rounded text-sm flex items-center hover:bg-red-700 shadow-sm font-medium">
               <Download className="w-4 h-4 mr-2" /> PDF
             </button>
             <button onClick={exportExcel} className="bg-green-600 text-white px-4 py-2 rounded text-sm flex items-center hover:bg-green-700 shadow-sm font-medium">
               <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
             </button>
-            <button onClick={() => window.print()} className="border border-slate-300 bg-white px-4 py-2 rounded text-sm flex items-center hover:bg-slate-50 shadow-sm font-medium">
+            <button onClick={() => exportPDF('print')} className="border border-slate-300 bg-white px-4 py-2 rounded text-sm flex items-center hover:bg-slate-50 shadow-sm font-medium">
               <Printer className="w-4 h-4 mr-2" /> Print
             </button>
           </div>
