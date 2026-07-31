@@ -94,6 +94,7 @@ export type Employee = {
   id: string
   name: string
   name_te?: string | null
+  gender?: string | null
   mobile: string | null
   role: string
   joining_date: string
