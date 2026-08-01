@@ -5,6 +5,7 @@ import { Save, Banknote, List, ChevronDown, Plus, Edit2, Trash2, Search, X, Prin
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
+import { formatVehicleNumber, isValidVehicleNumber } from "@/lib/utils"
 import { generateSalesCombinedPDF, shareSalesWhatsApp } from "@/lib/salesPdfUtils"
 import type { GroupedSaleSession } from "@/lib/salesPdfUtils"
 
@@ -26,6 +27,7 @@ export function Sales() {
   const [editingBuyer, setEditingBuyer] = useState<Buyer | null>(null)
   const [buyerFormName, setBuyerFormName] = useState("")
   const [buyerFormNameTe, setBuyerFormNameTe] = useState("")
+  const [buyerFormMobile, setBuyerFormMobile] = useState("")
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Sales Item State
@@ -36,6 +38,7 @@ export function Sales() {
 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [factoryName, setFactoryName] = useState("")
+  const [vehicleNumber, setVehicleNumber] = useState("")
   const [remarks, setRemarks] = useState("")
   const [advance, setAdvance] = useState<number>(0)
 
@@ -86,18 +89,28 @@ export function Sales() {
   const handleSaveBuyer = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!buyerFormName.trim()) return toast.error("Buyer name cannot be empty")
+    const cleanMobile = buyerFormMobile.trim().replace(/\D/g, '')
+    if (cleanMobile && cleanMobile.length !== 10) {
+      return toast.error("Phone Number must be exactly 10 digits")
+    }
+
     try {
-      const payload = { name: buyerFormName, name_te: buyerFormNameTe }
+      const payload = { 
+        name: buyerFormName.trim(), 
+        name_te: buyerFormNameTe.trim() || null, 
+        mobile: cleanMobile || null 
+      }
       if (editingBuyer) {
         await supabase.from('buyers').update(payload).eq('id', editingBuyer.id)
         toast.success(t("successUpdate", lang))
-        if (factoryName === editingBuyer.name) setFactoryName(buyerFormName)
+        if (factoryName === editingBuyer.name) setFactoryName(buyerFormName.trim())
       } else {
         await supabase.from('buyers').insert([payload])
         toast.success(t("successSave", lang))
       }
       setBuyerFormName("")
       setBuyerFormNameTe("")
+      setBuyerFormMobile("")
       setEditingBuyer(null)
       loadBuyers()
     } catch (err: any) {
@@ -151,6 +164,9 @@ export function Sales() {
     if (selectedItems.length === 0) return toast.error("Please add at least one item")
     if (totalQuantity <= 0) return toast.error("Please enter quantities greater than 0")
     if (grandTotal <= 0) return toast.error("Total amount must be greater than 0")
+    if (vehicleNumber.trim() && !isValidVehicleNumber(vehicleNumber)) {
+      return toast.error("Please enter a valid Vehicle Number (e.g. AP 27 TX 3987)")
+    }
 
     setLoading(true)
     try {
@@ -159,6 +175,7 @@ export function Sales() {
 
       const invoiceNumber = `INV-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`;
       const advanceVal = Number(advance || 0)
+      const formattedVehicle = vehicleNumber.trim() ? formatVehicleNumber(vehicleNumber) : null
 
       const initialStatus = (advanceVal >= grandTotal) 
         ? 'Completed' 
@@ -177,6 +194,7 @@ export function Sales() {
         .insert([{
           date,
           buyer_name: factoryName,
+          vehicle_number: formattedVehicle,
           total_amount: grandTotal,
           advance: advanceVal,
           payment_status: initialStatus,
@@ -205,6 +223,7 @@ export function Sales() {
     setSelectedItems([])
     setRemarks("")
     setAdvance(0)
+    setVehicleNumber("")
     setSavedSaleId(null)
   }
 
@@ -246,8 +265,6 @@ export function Sales() {
     }
   }
 
-
-
   // Group items by category for the modal
   const groupedMaterials = availableMaterials
     .filter(m => m.name.toLowerCase().includes(itemSearch.toLowerCase()) || m.category.toLowerCase().includes(itemSearch.toLowerCase()))
@@ -269,7 +286,7 @@ export function Sales() {
           <h2 className="text-lg font-semibold border-b pb-2 mb-4 flex items-center">
             <Banknote className="w-5 h-5 mr-2 text-primary" /> Invoice Details
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="relative" ref={dropdownRef}>
               <label className="block text-sm font-medium mb-1">Buyer / Factory *</label>
               <div 
@@ -294,17 +311,18 @@ export function Sales() {
                     />
                   </div>
                   <div className="overflow-y-auto flex-1">
-                    {buyers.filter(b => b.name.toLowerCase().includes(buyerSearch.toLowerCase()) || (b.name_te && b.name_te.includes(buyerSearch))).map(buyer => (
+                    {buyers.filter(b => b.name.toLowerCase().includes(buyerSearch.toLowerCase()) || (b.name_te && b.name_te.includes(buyerSearch)) || (b.mobile && b.mobile.includes(buyerSearch))).map(buyer => (
                       <div 
                         key={buyer.id} 
-                        className="px-3 py-2 text-sm hover:bg-muted cursor-pointer"
+                        className="px-3 py-2 text-sm hover:bg-muted cursor-pointer flex justify-between items-center"
                         onClick={() => {
                           setFactoryName(buyer.name)
                           setIsBuyerDropdownOpen(false)
                           setBuyerSearch("")
                         }}
                       >
-                        {lang === 'te' && buyer.name_te ? buyer.name_te : buyer.name}
+                        <span>{lang === 'te' && buyer.name_te ? buyer.name_te : buyer.name}</span>
+                        {buyer.mobile && <span className="text-xs text-muted-foreground font-mono ml-2">📱 {buyer.mobile}</span>}
                       </div>
                     ))}
                   </div>
@@ -323,6 +341,17 @@ export function Sales() {
             <div>
               <label className="block text-sm font-medium mb-1">Date *</label>
               <input type="date" className="w-full border p-2 rounded" value={date} onChange={e => setDate(e.target.value)} disabled={!!savedSaleId} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Vehicle Number</label>
+              <input 
+                type="text" 
+                placeholder="e.g. AP 27 TX 3987" 
+                className="w-full border p-2 rounded bg-background font-semibold uppercase tracking-wide" 
+                value={vehicleNumber} 
+                onChange={e => setVehicleNumber(formatVehicleNumber(e.target.value))} 
+                disabled={!!savedSaleId} 
+              />
             </div>
           </div>
 
@@ -454,7 +483,9 @@ export function Sales() {
                 <div key={sale.id} className="border p-3 rounded-lg flex justify-between items-center text-sm bg-muted/30">
                   <div>
                     <div className="font-semibold text-primary">{sale.buyer_name}</div>
-                    <div className="text-xs text-muted-foreground">{sale.date} {sale.invoice_number ? `• ${sale.invoice_number}` : ''}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {sale.date} {sale.invoice_number ? `• ${sale.invoice_number}` : ''} {sale.vehicle_number ? `• ${sale.vehicle_number}` : ''}
+                    </div>
                   </div>
                   <div className="text-right">
                     <div className="font-bold">₹{formatInr(sale.total_amount)}</div>
@@ -518,10 +549,10 @@ export function Sales() {
       {/* Buyer CRUD Modal */}
       {isBuyerModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-background w-full max-w-lg rounded-lg shadow-lg flex flex-col max-h-[90vh]">
+          <div className="bg-background w-full max-w-xl rounded-lg shadow-lg flex flex-col max-h-[90vh]">
             <div className="p-4 border-b flex justify-between items-center bg-muted/30">
               <h2 className="text-lg font-bold">Manage Buyers</h2>
-              <button onClick={() => { setIsBuyerModalOpen(false); setEditingBuyer(null); setBuyerFormName(""); }} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5"/></button>
+              <button onClick={() => { setIsBuyerModalOpen(false); setEditingBuyer(null); setBuyerFormName(""); setBuyerFormNameTe(""); setBuyerFormMobile(""); }} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5"/></button>
             </div>
             
             <div className="p-4 border-b bg-muted/10">
@@ -529,7 +560,7 @@ export function Sales() {
                 <input 
                   type="text" 
                   placeholder={t("name", lang)} 
-                  className="w-full border p-2 rounded text-sm"
+                  className="w-full border p-2 rounded text-sm bg-background"
                   value={buyerFormName}
                   onChange={e => setBuyerFormName(e.target.value)}
                   required
@@ -537,16 +568,24 @@ export function Sales() {
                 <input 
                   type="text" 
                   placeholder={t("nameTe", lang)} 
-                  className="w-full border p-2 rounded text-sm"
+                  className="w-full border p-2 rounded text-sm bg-background"
                   value={buyerFormNameTe}
                   onChange={e => setBuyerFormNameTe(e.target.value)}
+                />
+                <input 
+                  type="tel" 
+                  maxLength={10}
+                  placeholder={lang === 'te' ? "ఫోన్ నంబర్ (10 అంకెలు)" : "Phone Number (10 digits)"} 
+                  className="w-full border p-2 rounded text-sm bg-background font-mono"
+                  value={buyerFormMobile}
+                  onChange={e => setBuyerFormMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 />
                 <div className="flex gap-2">
                   <button type="submit" className="flex-1 bg-primary text-primary-foreground px-4 py-2 rounded text-sm font-medium hover:bg-primary/90">
                     {editingBuyer ? t("update", lang) : t("save", lang)}
                   </button>
                   {editingBuyer && (
-                    <button type="button" onClick={() => { setEditingBuyer(null); setBuyerFormName(""); setBuyerFormNameTe(""); }} className="flex-1 px-3 py-2 border rounded text-sm hover:bg-muted">{t("cancel", lang)}</button>
+                    <button type="button" onClick={() => { setEditingBuyer(null); setBuyerFormName(""); setBuyerFormNameTe(""); setBuyerFormMobile(""); }} className="flex-1 px-3 py-2 border rounded text-sm hover:bg-muted">{t("cancel", lang)}</button>
                   )}
                 </div>
               </form>
@@ -558,17 +597,19 @@ export function Sales() {
                   <tr>
                     <th className="px-4 py-2">{t("name", lang)}</th>
                     <th className="px-4 py-2">{t("nameTe", lang)}</th>
+                    <th className="px-4 py-2">Phone Number</th>
                     <th className="px-4 py-2 text-right w-24">{t("actions", lang)}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {buyers.filter(b => b.name.toLowerCase().includes(buyerSearch.toLowerCase()) || (b.name_te && b.name_te.includes(buyerSearch))).map(buyer => (
-                    <tr key={buyer.id} className="border-b last:border-0">
+                  {buyers.filter(b => b.name.toLowerCase().includes(buyerSearch.toLowerCase()) || (b.name_te && b.name_te.includes(buyerSearch)) || (b.mobile && b.mobile.includes(buyerSearch))).map(buyer => (
+                    <tr key={buyer.id} className="border-b last:border-0 hover:bg-muted/10">
                       <td className="px-4 py-3 font-medium">{buyer.name}</td>
                       <td className="px-4 py-3 font-medium">{buyer.name_te || '-'}</td>
+                      <td className="px-4 py-3 font-mono text-muted-foreground">{buyer.mobile || '-'}</td>
                       <td className="px-4 py-3 text-right">
                         <button 
-                          onClick={() => { setEditingBuyer(buyer); setBuyerFormName(buyer.name); setBuyerFormNameTe(buyer.name_te || ""); }} 
+                          onClick={() => { setEditingBuyer(buyer); setBuyerFormName(buyer.name); setBuyerFormNameTe(buyer.name_te || ""); setBuyerFormMobile(buyer.mobile || ""); }} 
                           className="text-blue-600 hover:bg-blue-50 p-1.5 rounded mr-1"
                         >
                           <Edit2 className="w-4 h-4" />

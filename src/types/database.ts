@@ -69,6 +69,7 @@ export type Sale = {
   date: string
   buyer_name: string | null
   invoice_number: string | null
+  vehicle_number?: string | null
   total_amount: number
   advance?: number
   items?: Record<string, any>
@@ -127,6 +128,7 @@ export type Buyer = {
   id: string
   name: string
   name_te?: string | null
+  mobile?: string | null
   created_at: string
 }
 

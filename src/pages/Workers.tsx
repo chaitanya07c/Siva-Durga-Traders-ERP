@@ -5,7 +5,7 @@ import { Users, Calendar as CalendarIcon, ClipboardList, Plus, Edit2, Trash2, In
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { formatDate } from "@/lib/utils"
+import { formatDate, toLocalDateString, getStartOfMonthString, getEndOfMonthString } from "@/lib/utils"
 import { generateTablePDF } from "@/lib/pdfTemplate"
 import * as XLSX from "xlsx"
 
@@ -22,14 +22,14 @@ export function Workers() {
   
   // Date context
   const [currentMonth, setCurrentMonth] = useState(new Date())
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+  const [selectedDate, setSelectedDate] = useState(toLocalDateString())
   
   // Popup state for Calendar attendance editing
   const [activePopup, setActivePopup] = useState<{empId: string, dateStr: string, x: number, y: number} | null>(null)
   
   // Employee Form
   const [formData, setFormData] = useState<Partial<Employee>>({
-    name: "", name_te: "", gender: "Gents", mobile: "", role: "Worker", joining_date: new Date().toISOString().split('T')[0], status: "Active", daily_wage: 0
+    name: "", name_te: "", gender: "Gents", mobile: "", role: "Worker", joining_date: toLocalDateString(), status: "Active", daily_wage: 0
   })
 
   useEffect(() => {
@@ -55,8 +55,8 @@ export function Workers() {
   }
 
   const fetchMonthAttendance = async () => {
-    const start = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0]
-    const end = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0]
+    const start = getStartOfMonthString(currentMonth)
+    const end = getEndOfMonthString(currentMonth)
     const { data } = await supabase.from('attendance').select('*').gte('date', start).lte('date', end)
     if (data) setAttendance(data)
   }
@@ -74,7 +74,7 @@ export function Workers() {
         gender: formData.gender || "Gents",
         mobile: formData.mobile || "",
         role: formData.role || "Worker",
-        joining_date: formData.joining_date || new Date().toISOString().split('T')[0],
+        joining_date: formData.joining_date || toLocalDateString(),
         daily_wage: Number(formData.daily_wage || 0),
         status: formData.status || "Active"
       }
@@ -100,7 +100,7 @@ export function Workers() {
   }
 
   const markAttendance = async (empId: string, status: string, date: string) => {
-    const existing = attendance.find(a => a.employee_id === empId && a.date === date)
+    const existing = attendance.find(a => a.employee_id === empId && (a.date ? a.date.split('T')[0] : '') === date)
     if (existing) {
       await supabase.from('attendance').update({ status }).eq('id', existing.id)
     } else {
@@ -118,7 +118,7 @@ export function Workers() {
   
   const getAttendanceForDate = (empId: string, day: number) => {
     const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    return attendance.find(a => a.employee_id === empId && a.date === dateStr)?.status
+    return attendance.find(a => a.employee_id === empId && (a.date ? a.date.split('T')[0] : '') === dateStr)?.status
   }
 
   const getStats = (empId: string) => {
@@ -149,7 +149,12 @@ export function Workers() {
     const dayCols = Array.from({ length: daysInMonth }, (_, i) => String(i + 1))
     const head = [['S.No.', 'Employee Name', 'Gender', ...dayCols, 'P', 'A', 'H']]
     
-    const body = employees.map((emp, index) => {
+    const orderedList = [
+      ...employees.filter(e => (e.gender || '').toLowerCase() !== 'ladies'),
+      ...employees.filter(e => (e.gender || '').toLowerCase() === 'ladies')
+    ]
+
+    const body = orderedList.map((emp, index) => {
       const stats = getStats(emp.id)
       const empName = lang === 'te' && emp.name_te ? emp.name_te : emp.name
       const genderLabel = (emp.gender || '').toLowerCase() === 'ladies' ? 'Ladies' : 'Gents'
@@ -183,7 +188,12 @@ export function Workers() {
 
   const exportCalendarExcel = () => {
     const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })
-    const sheetData = employees.map((emp, index) => {
+    const orderedList = [
+      ...employees.filter(e => (e.gender || '').toLowerCase() !== 'ladies'),
+      ...employees.filter(e => (e.gender || '').toLowerCase() === 'ladies')
+    ]
+
+    const sheetData = orderedList.map((emp, index) => {
       const stats = getStats(emp.id)
       const empName = lang === 'te' && emp.name_te ? emp.name_te : emp.name
       const row: Record<string, any> = {
@@ -232,7 +242,12 @@ export function Workers() {
     const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })
     const head = [['S.No.', 'Employee Name', 'Gender', 'Daily Salary', 'Present', 'Half Day', 'Absent', 'Salary Payable']]
     
-    const body: any[][] = employees.map((emp, index) => {
+    const orderedList = [
+      ...employees.filter(e => (e.gender || '').toLowerCase() !== 'ladies'),
+      ...employees.filter(e => (e.gender || '').toLowerCase() === 'ladies')
+    ]
+
+    const body: any[][] = orderedList.map((emp, index) => {
       const stats = getStats(emp.id)
       const salaryPayable = (stats.present + stats.half * 0.5) * Number(emp.daily_wage || 0)
       const empName = lang === 'te' && emp.name_te ? emp.name_te : emp.name
@@ -277,7 +292,12 @@ export function Workers() {
 
   const exportSalaryExcel = () => {
     const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })
-    const sheetData = employees.map((emp, index) => {
+    const orderedList = [
+      ...employees.filter(e => (e.gender || '').toLowerCase() !== 'ladies'),
+      ...employees.filter(e => (e.gender || '').toLowerCase() === 'ladies')
+    ]
+
+    const sheetData = orderedList.map((emp, index) => {
       const stats = getStats(emp.id)
       const salaryPayable = (stats.present + stats.half * 0.5) * Number(emp.daily_wage || 0)
       const empName = lang === 'te' && emp.name_te ? emp.name_te : emp.name
@@ -324,7 +344,7 @@ export function Workers() {
       gender: defaultGender,
       mobile: "",
       role: "Worker",
-      joining_date: new Date().toISOString().split('T')[0],
+      joining_date: toLocalDateString(),
       status: "Active",
       daily_wage: 0
     })
@@ -629,13 +649,23 @@ export function Workers() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEmployees.map((emp, index) => {
+                  {/* Gents Section Header */}
+                  {gentsList.length > 0 && ladiesList.length > 0 && (
+                    <tr className="bg-blue-50/80 dark:bg-blue-950/40 border-y border-blue-200 dark:border-blue-900 font-bold">
+                      <td colSpan={daysInMonth + 6} className="py-2 px-4 text-left font-bold text-xs uppercase tracking-wider text-blue-700 dark:text-blue-300 sticky left-0 z-10 bg-blue-50/90 dark:bg-blue-950/90">
+                        👨 {lang === 'te' ? "జెండ్స్ పనివారు" : "Gents Workers"} ({gentsList.length})
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Gents Workers */}
+                  {gentsList.map((emp, index) => {
                     const stats = getStats(emp.id)
                     return (
                       <tr key={emp.id} className="hover:bg-muted/30">
                         <td className="border p-2 text-left text-muted-foreground sticky left-0 bg-card z-10 w-12">{index + 1}</td>
                         <td className="border p-2 text-left font-medium sticky left-[48px] bg-card z-10">{lang === 'te' && emp.name_te ? emp.name_te : emp.name}</td>
-                        <td className="border p-2 text-muted-foreground font-semibold">{(emp.gender || '').toLowerCase() === 'ladies' ? 'Ladies' : 'Gents'}</td>
+                        <td className="border p-2 text-muted-foreground font-semibold">Gents</td>
                         {[...Array(daysInMonth)].map((_, i) => {
                           const status = getAttendanceForDate(emp.id, i + 1)
                           let color = ""
@@ -670,6 +700,66 @@ export function Workers() {
                       </tr>
                     )
                   })}
+
+                  {/* Section Divider: Ladies Workers */}
+                  {ladiesList.length > 0 && (
+                    <tr className="bg-pink-50/90 dark:bg-pink-950/60 border-y-2 border-pink-300 dark:border-pink-800 font-bold">
+                      <td colSpan={daysInMonth + 6} className="py-2.5 px-4 text-left font-extrabold text-xs uppercase tracking-wider text-pink-700 dark:text-pink-300 sticky left-0 z-10 bg-pink-50/95 dark:bg-pink-950/95">
+                        👩 {lang === 'te' ? "లేడీస్ పనివారు" : "Ladies Workers"} ({ladiesList.length})
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Ladies Workers */}
+                  {ladiesList.map((emp, index) => {
+                    const stats = getStats(emp.id)
+                    return (
+                      <tr key={emp.id} className="hover:bg-muted/30">
+                        <td className="border p-2 text-left text-muted-foreground sticky left-0 bg-card z-10 w-12">{gentsList.length + index + 1}</td>
+                        <td className="border p-2 text-left font-medium sticky left-[48px] bg-card z-10">{lang === 'te' && emp.name_te ? emp.name_te : emp.name}</td>
+                        <td className="border p-2 text-muted-foreground font-semibold">Ladies</td>
+                        {[...Array(daysInMonth)].map((_, i) => {
+                          const status = getAttendanceForDate(emp.id, i + 1)
+                          let color = ""
+                          let label = ""
+                          if (status === 'Present') { color = "bg-green-500 text-white"; label = "P" }
+                          if (status === 'Absent') { color = "bg-red-500 text-white"; label = "A" }
+                          if (status === 'Half Day') { color = "bg-yellow-500 text-white"; label = "H" }
+                          
+                          const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`
+                          
+                          const isDayToday = currentMonth.getFullYear() === new Date().getFullYear() && currentMonth.getMonth() === new Date().getMonth() && (i + 1) === new Date().getDate()
+
+                          return (
+                            <td key={i} className={`border p-0 cursor-pointer hover:opacity-80 transition-opacity ${color} ${isDayToday ? 'ring-2 ring-primary/80 ring-offset-1 font-bold' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const rect = (e.target as HTMLElement).getBoundingClientRect()
+                                  setActivePopup({
+                                    empId: emp.id,
+                                    dateStr,
+                                    x: rect.left + window.scrollX,
+                                    y: rect.bottom + window.scrollY
+                                  })
+                                }}>
+                              {label || "-"}
+                            </td>
+                          )
+                        })}
+                        <td className="border p-2 font-bold text-green-600">{stats.present}</td>
+                        <td className="border p-2 font-bold text-red-600">{stats.absent}</td>
+                        <td className="border p-2 font-bold text-yellow-600">{stats.half}</td>
+                      </tr>
+                    )
+                  })}
+
+                  {filteredEmployees.length === 0 && (
+                    <tr>
+                      <td colSpan={daysInMonth + 6} className="py-8 text-center text-muted-foreground text-xs font-medium">
+                        {lang === 'te' ? "ఏ పనివారు కనుగొనబడలేదు" : "No workers found."}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -749,7 +839,17 @@ export function Workers() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredEmployees.map((emp, index) => {
+                  {/* Gents Section Header */}
+                  {gentsList.length > 0 && ladiesList.length > 0 && (
+                    <tr className="bg-blue-50/80 dark:bg-blue-950/40 border-y border-blue-200 dark:border-blue-900 font-bold">
+                      <td colSpan={8} className="py-2.5 px-4 text-left font-bold text-xs uppercase tracking-wider text-blue-700 dark:text-blue-300">
+                        👨 {lang === 'te' ? "జెండ్స్ పనివారు" : "Gents Workers"} ({gentsList.length})
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Gents Workers */}
+                  {gentsList.map((emp, index) => {
                     const stats = getStats(emp.id)
                     const payable = (stats.present + stats.half * 0.5) * Number(emp.daily_wage || 0)
                     return (
@@ -757,10 +857,8 @@ export function Workers() {
                         <td className="px-4 py-3 text-muted-foreground font-medium">{index + 1}</td>
                         <td className="px-4 py-3 font-bold text-foreground">{lang === 'te' && emp.name_te ? emp.name_te : emp.name}</td>
                         <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                            (emp.gender || '').toLowerCase() === 'ladies' ? 'bg-pink-50 text-pink-700' : 'bg-blue-50 text-blue-700'
-                          }`}>
-                            {(emp.gender || '').toLowerCase() === 'ladies' ? 'Ladies' : 'Gents'}
+                          <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                            {lang === 'te' ? 'జెండ్స్' : 'Gents'}
                           </span>
                         </td>
                         <td className="px-4 py-3 font-semibold">₹{Number(emp.daily_wage || 0).toLocaleString('en-IN')}</td>
@@ -771,6 +869,45 @@ export function Workers() {
                       </tr>
                     )
                   })}
+
+                  {/* Section Divider: Ladies Workers */}
+                  {ladiesList.length > 0 && (
+                    <tr className="bg-pink-50/90 dark:bg-pink-950/60 border-y-2 border-pink-300 dark:border-pink-800 font-bold">
+                      <td colSpan={8} className="py-2.5 px-4 text-left font-extrabold text-xs uppercase tracking-wider text-pink-700 dark:text-pink-300">
+                        👩 {lang === 'te' ? "లేడీస్ పనివారు" : "Ladies Workers"} ({ladiesList.length})
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Ladies Workers */}
+                  {ladiesList.map((emp, index) => {
+                    const stats = getStats(emp.id)
+                    const payable = (stats.present + stats.half * 0.5) * Number(emp.daily_wage || 0)
+                    return (
+                      <tr key={emp.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 text-muted-foreground font-medium">{gentsList.length + index + 1}</td>
+                        <td className="px-4 py-3 font-bold text-foreground">{lang === 'te' && emp.name_te ? emp.name_te : emp.name}</td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-0.5 rounded text-xs font-semibold bg-pink-50 text-pink-700 border border-pink-200">
+                            {lang === 'te' ? 'లేడీస్' : 'Ladies'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-semibold">₹{Number(emp.daily_wage || 0).toLocaleString('en-IN')}</td>
+                        <td className="px-4 py-3 text-center text-green-600 font-bold">{stats.present}</td>
+                        <td className="px-4 py-3 text-center text-yellow-600 font-bold">{stats.half}</td>
+                        <td className="px-4 py-3 text-center text-red-600 font-bold">{stats.absent}</td>
+                        <td className="px-4 py-3 text-right font-extrabold text-green-700 text-base">₹{payable.toLocaleString('en-IN')}</td>
+                      </tr>
+                    )
+                  })}
+
+                  {filteredEmployees.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-muted-foreground text-xs font-medium">
+                        {lang === 'te' ? "ఏ పనివారు కనుగొనబడలేదు" : "No workers found."}
+                      </td>
+                    </tr>
+                  )}
                   <tr className="bg-muted/50 font-bold border-t-2 border-slate-300">
                     <td className="px-4 py-3" colSpan={6}></td>
                     <td className="px-4 py-3 text-center font-bold">{lang === 'te' ? "మొత్తం చెల్లించవలసిన జీతం" : "Total Salary Payable"}</td>

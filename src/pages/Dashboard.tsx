@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase"
 import { IndianRupee, Store, CreditCard, Users, Calendar, Wallet } from "lucide-react"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
+import { toLocalDateString, getStartOfMonthString, getEndOfMonthString, getMsUntilNextMidnight } from "@/lib/utils"
 
 const formatInr = (value: number) => {
   return new Intl.NumberFormat('en-IN').format(value)
@@ -10,7 +11,7 @@ const formatInr = (value: number) => {
 
 export function Dashboard() {
   const { lang } = useOutletContext<{ lang: "en" | "te" }>()
-  const currentMonthKeyRef = useRef<string>("")
+  const currentDateKeyRef = useRef<string>("")
 
   const [stats, setStats] = useState({
     todaysPurchase: 0,
@@ -36,35 +37,61 @@ export function Dashboard() {
   useEffect(() => {
     loadStats()
 
-    // Auto-refresh when a new month begins or window gains focus
-    const interval = setInterval(() => {
-      const checkNow = new Date()
-      const checkKey = `${checkNow.getFullYear()}-${checkNow.getMonth()}`
-      if (currentMonthKeyRef.current && currentMonthKeyRef.current !== checkKey) {
-        currentMonthKeyRef.current = checkKey
+    // 1. Precise Midnight Timer (triggers at 12:00:00 AM local timezone)
+    let midnightTimerId: ReturnType<typeof setTimeout>
+
+    const scheduleMidnightTimer = () => {
+      const ms = getMsUntilNextMidnight()
+      midnightTimerId = setTimeout(() => {
+        const checkToday = toLocalDateString(new Date())
+        if (currentDateKeyRef.current !== checkToday) {
+          currentDateKeyRef.current = checkToday
+          loadStats()
+        }
+        scheduleMidnightTimer()
+      }, ms + 250)
+    }
+
+    scheduleMidnightTimer()
+
+    // 2. Periodic Guard Interval (every 10 seconds)
+    // Ensures date changes are caught even if system sleep/browser throttling delayed setTimeout
+    const intervalId = setInterval(() => {
+      const checkToday = toLocalDateString(new Date())
+      if (currentDateKeyRef.current && currentDateKeyRef.current !== checkToday) {
+        currentDateKeyRef.current = checkToday
         loadStats()
       }
-    }, 60000)
+    }, 10000)
 
-    const handleFocus = () => {
-      loadStats()
+    // 3. Tab Focus and Visibility Change Handlers
+    const checkAndRefreshIfDateChanged = () => {
+      const checkToday = toLocalDateString(new Date())
+      if (currentDateKeyRef.current && currentDateKeyRef.current !== checkToday) {
+        currentDateKeyRef.current = checkToday
+        loadStats()
+      }
     }
-    window.addEventListener('focus', handleFocus)
+
+    window.addEventListener('focus', checkAndRefreshIfDateChanged)
+    document.addEventListener('visibilitychange', checkAndRefreshIfDateChanged)
 
     return () => {
-      clearInterval(interval)
-      window.removeEventListener('focus', handleFocus)
+      clearTimeout(midnightTimerId)
+      clearInterval(intervalId)
+      window.removeEventListener('focus', checkAndRefreshIfDateChanged)
+      document.removeEventListener('visibilitychange', checkAndRefreshIfDateChanged)
     }
   }, [])
 
   const loadStats = async () => {
     const now = new Date()
-    currentMonthKeyRef.current = `${now.getFullYear()}-${now.getMonth()}`
-    const today = now.toISOString().split('T')[0]
+    const today = toLocalDateString(now)
+    currentDateKeyRef.current = today
     
     // Automatically determine current month date range from system date
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
+    const startOfMonth = getStartOfMonthString(now)
+    const endOfMonth = getEndOfMonthString(now)
 
     // 1. Total Shops
     const { count: shopCount } = await supabase.from('shops').select('*', { count: 'exact', head: true })

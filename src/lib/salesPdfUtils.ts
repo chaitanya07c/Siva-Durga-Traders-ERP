@@ -22,6 +22,7 @@ export type GroupedSaleSession = {
 export type SalesBillBreakdown = {
   id?: string
   invoiceNumber: string | null
+  vehicleNumber?: string | null
   date: string
   items: { name: string, quantity: number, rate: number, total: number }[]
   grandTotal: number
@@ -51,6 +52,7 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
     return {
       id: fb.id,
       invoiceNumber: fb.invoice_number,
+      vehicleNumber: fb.vehicle_number,
       date: fb.date,
       items: formattedItems,
       grandTotal: fb.total_amount,
@@ -133,6 +135,15 @@ export const generateSalesCombinedPDF = async (
     const latestDateFromHistory = sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1].date : null
     const effectivePaymentDate = session.payment_date || latestDateFromHistory || latestDateFromBills || session.date
 
+    // Fetch buyer phone number if available
+    let buyerMobile: string | null = null
+    if (session.buyer_name) {
+      const { data: bData } = await supabase.from('buyers').select('mobile').eq('name', session.buyer_name).maybeSingle()
+      if (bData && bData.mobile) {
+        buyerMobile = bData.mobile
+      }
+    }
+
     const documentData: PDFDocumentData = {
       title: "SALES INVOICE",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
@@ -140,6 +151,8 @@ export const generateSalesCombinedPDF = async (
       bills: bills.map(bill => {
         const metadataLeft = [
           `Buyer Name: ${session.buyer_name || 'Unknown'}`,
+          ...(buyerMobile ? [`Phone No: ${buyerMobile}`] : []),
+          ...(bill.vehicleNumber ? [`Vehicle No: ${bill.vehicleNumber}`] : []),
           `Remarks: ${bill.remarks || '-'}`
         ]
         

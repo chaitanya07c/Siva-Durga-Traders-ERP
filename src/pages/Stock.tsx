@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase"
 import { Calendar, Boxes, TrendingUp, AlertCircle, Info, Download, FileSpreadsheet, Printer } from "lucide-react"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
+import { toLocalDateString, getStartOfMonthString } from "@/lib/utils"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import * as XLSX from "xlsx"
@@ -40,11 +41,8 @@ export function Stock() {
 
   const [activeTab, setActiveTab] = useState<"Purchasing" | "Sales">("Purchasing")
 
-  const getTodayStr = () => new Date().toISOString().split('T')[0]
-  const getFirstDayOfMonthStr = () => {
-    const today = new Date()
-    return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]
-  }
+  const getTodayStr = () => toLocalDateString()
+  const getFirstDayOfMonthStr = () => getStartOfMonthString()
 
   const [startDate, setStartDate] = useState<string>(getFirstDayOfMonthStr())
   const [endDate, setEndDate] = useState<string>(getTodayStr())

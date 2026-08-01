@@ -6,7 +6,7 @@ import { fetchSalesBillBreakdowns, generateSalesCombinedPDF, shareSalesWhatsApp,
 import type { GroupedSaleSession, SalesBillBreakdown } from "@/lib/salesPdfUtils"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { formatDate } from "@/lib/utils"
+import { formatDate, formatVehicleNumber, isValidVehicleNumber } from "@/lib/utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -28,6 +28,7 @@ export function SalesPayments() {
   // Edit Invoice states
   const [editingInvoice, setEditingInvoice] = useState<SalesBillBreakdown | null>(null)
   const [editInvoiceDate, setEditInvoiceDate] = useState("")
+  const [editInvoiceVehicleNumber, setEditInvoiceVehicleNumber] = useState("")
   const [editInvoiceRemarks, setEditInvoiceRemarks] = useState("")
   const [editInvoiceAdvance, setEditInvoiceAdvance] = useState(0)
   const [editInvoicePartialPayment, setEditInvoicePartialPayment] = useState(0)
@@ -36,18 +37,23 @@ export function SalesPayments() {
   const [paymentInputAmount, setPaymentInputAmount] = useState<number>(0)
   const [advanceInputAmount, setAdvanceInputAmount] = useState<number>(0)
 
+  const [buyerMobileMap, setBuyerMobileMap] = useState<Map<string, string>>(new Map())
+
   useEffect(() => {
     loadSessions()
   }, [activeTab])
 
   const loadSessions = async () => {
-    const { data: buyersData } = await supabase.from('buyers').select('name, name_te')
+    const { data: buyersData } = await supabase.from('buyers').select('name, name_te, mobile')
     const buyerMap = new Map<string, string>()
+    const mobileMap = new Map<string, string>()
     if (buyersData) {
       buyersData.forEach(b => {
         if (b.name_te) buyerMap.set(b.name, b.name_te)
+        if (b.mobile) mobileMap.set(b.name, b.mobile)
       })
     }
+    setBuyerMobileMap(mobileMap)
 
     const { data } = await supabase
       .from('sales')
@@ -297,6 +303,7 @@ export function SalesPayments() {
   const handleEditInvoiceInitiate = (bill: SalesBillBreakdown) => {
     setEditingInvoice(bill)
     setEditInvoiceDate(bill.date)
+    setEditInvoiceVehicleNumber(bill.vehicleNumber || "")
     setEditInvoiceRemarks(bill.remarks || "")
     setEditInvoiceAdvance(bill.advance || 0)
     setEditInvoicePartialPayment(bill.partial_payment || 0)
@@ -314,6 +321,10 @@ export function SalesPayments() {
 
   const handleSaveEditedInvoice = async () => {
     if (!editingInvoice) return
+    if (editInvoiceVehicleNumber.trim() && !isValidVehicleNumber(editInvoiceVehicleNumber)) {
+      return toast.error("Please enter a valid Vehicle Number (e.g. AP 27 TX 3987)")
+    }
+
     try {
       const totalAmount = editInvoiceItems.reduce((sum, item) => sum + item.total, 0)
       const itemsJson = editInvoiceItems.reduce((acc, curr) => ({
@@ -325,6 +336,7 @@ export function SalesPayments() {
       const additionalPaid = Number(editInvoicePartialPayment || 0)
       const totalPaid = advVal + additionalPaid
       const rem = Math.max(0, totalAmount - totalPaid)
+      const formattedVehicle = editInvoiceVehicleNumber.trim() ? formatVehicleNumber(editInvoiceVehicleNumber) : null
 
       const newStatus = (rem === 0) 
         ? 'Completed' 
@@ -334,6 +346,7 @@ export function SalesPayments() {
         .from('sales')
         .update({
           date: editInvoiceDate,
+          vehicle_number: formattedVehicle,
           total_amount: totalAmount,
           advance: advVal,
           remarks: editInvoiceRemarks,
@@ -545,7 +558,11 @@ export function SalesPayments() {
             <div className="p-5 border-b flex justify-between items-center sticky top-0 bg-background z-10">
               <div>
                 <h2 className="text-xl font-bold">Session Details</h2>
-                <p className="text-sm text-muted-foreground">{detailsModal.session.buyer_name} • {formatDate(detailsModal.session.date)}</p>
+                <p className="text-sm text-muted-foreground">
+                  {detailsModal.session.buyer_name}
+                  {buyerMobileMap.get(detailsModal.session.buyer_name) ? ` • Phone: ${buyerMobileMap.get(detailsModal.session.buyer_name)}` : ''} 
+                  • {formatDate(detailsModal.session.date)}
+                </p>
               </div>
               <div className="text-right">
                 <div className="text-sm text-muted-foreground">Overall Amount</div>
@@ -559,7 +576,7 @@ export function SalesPayments() {
                   <div key={index} className="bg-card border rounded-lg overflow-hidden shadow-sm">
                     <div className="bg-slate-100 px-4 py-2 border-b flex justify-between items-center font-semibold">
                       <div className="flex items-center gap-2">
-                        <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''}</span>
+                        <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''} {bill.vehicleNumber ? `• Vehicle: ${bill.vehicleNumber}` : ''}</span>
                         {detailsModal.session.status !== 'Completed' && (
                           <button
                             onClick={() => handleEditInvoiceInitiate(bill)}
@@ -686,7 +703,11 @@ export function SalesPayments() {
               <div className="p-5 border-b bg-slate-50 flex justify-between items-center sticky top-0 bg-background z-10">
                 <div>
                   <h2 className="text-xl font-bold">{t("paymentSummary", lang)}</h2>
-                  <p className="text-xs text-muted-foreground">{paymentModal.buyer_name} • {paymentModal.date}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {paymentModal.buyer_name}
+                    {buyerMobileMap.get(paymentModal.buyer_name) ? ` • Phone: ${buyerMobileMap.get(paymentModal.buyer_name)}` : ''} 
+                    • {paymentModal.date}
+                  </p>
                 </div>
                 <button onClick={() => setPaymentModal(null)} className="text-slate-400 hover:text-slate-600 text-lg font-medium">✕</button>
               </div>
@@ -877,14 +898,26 @@ export function SalesPayments() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-4 flex-1">
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground mb-1">Date</label>
-                <input 
-                  type="date"
-                  className="w-full border p-2 rounded text-sm"
-                  value={editInvoiceDate}
-                  onChange={e => setEditInvoiceDate(e.target.value)}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">Date</label>
+                  <input 
+                    type="date"
+                    className="w-full border p-2 rounded text-sm"
+                    value={editInvoiceDate}
+                    onChange={e => setEditInvoiceDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">Vehicle Number</label>
+                  <input 
+                    type="text"
+                    placeholder="e.g. AP 27 TX 3987"
+                    className="w-full border p-2 rounded text-sm uppercase font-semibold tracking-wide bg-background"
+                    value={editInvoiceVehicleNumber}
+                    onChange={e => setEditInvoiceVehicleNumber(formatVehicleNumber(e.target.value))}
+                  />
+                </div>
               </div>
 
               {/* Items Section */}
