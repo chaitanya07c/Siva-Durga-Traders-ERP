@@ -6,7 +6,7 @@ import { fetchSalesBillBreakdowns, generateSalesCombinedPDF, shareSalesWhatsApp,
 import type { GroupedSaleSession, SalesBillBreakdown } from "@/lib/salesPdfUtils"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { formatDate, formatVehicleNumber, isValidVehicleNumber } from "@/lib/utils"
+import { formatDate, formatVehicleNumber, isValidVehicleNumber, isValidDriverName, isValidDriverPhone } from "@/lib/utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -29,6 +29,8 @@ export function SalesPayments() {
   const [editingInvoice, setEditingInvoice] = useState<SalesBillBreakdown | null>(null)
   const [editInvoiceDate, setEditInvoiceDate] = useState("")
   const [editInvoiceVehicleNumber, setEditInvoiceVehicleNumber] = useState("")
+  const [editInvoiceDriverName, setEditInvoiceDriverName] = useState("")
+  const [editInvoiceDriverPhone, setEditInvoiceDriverPhone] = useState("")
   const [editInvoiceRemarks, setEditInvoiceRemarks] = useState("")
   const [editInvoiceAdvance, setEditInvoiceAdvance] = useState(0)
   const [editInvoicePartialPayment, setEditInvoicePartialPayment] = useState(0)
@@ -304,6 +306,8 @@ export function SalesPayments() {
     setEditingInvoice(bill)
     setEditInvoiceDate(bill.date)
     setEditInvoiceVehicleNumber(bill.vehicleNumber || "")
+    setEditInvoiceDriverName(bill.driverName || "")
+    setEditInvoiceDriverPhone(bill.driverPhone || "")
     setEditInvoiceRemarks(bill.remarks || "")
     setEditInvoiceAdvance(bill.advance || 0)
     setEditInvoicePartialPayment(bill.partial_payment || 0)
@@ -323,6 +327,12 @@ export function SalesPayments() {
     if (!editingInvoice) return
     if (editInvoiceVehicleNumber.trim() && !isValidVehicleNumber(editInvoiceVehicleNumber)) {
       return toast.error("Please enter a valid Vehicle Number (e.g. AP 27 TX 3987)")
+    }
+    if (editInvoiceDriverName.trim() && !isValidDriverName(editInvoiceDriverName)) {
+      return toast.error("Please enter a valid Driver Name (letters, spaces, and common characters)")
+    }
+    if (editInvoiceDriverPhone.trim() && !isValidDriverPhone(editInvoiceDriverPhone)) {
+      return toast.error("Driver Phone Number must be exactly 10 digits")
     }
 
     try {
@@ -347,6 +357,8 @@ export function SalesPayments() {
         .update({
           date: editInvoiceDate,
           vehicle_number: formattedVehicle,
+          driver_name: editInvoiceDriverName.trim() || null,
+          driver_phone: editInvoiceDriverPhone.trim().replace(/\D/g, '') || null,
           total_amount: totalAmount,
           advance: advVal,
           remarks: editInvoiceRemarks,
@@ -575,16 +587,21 @@ export function SalesPayments() {
                 {detailsModal.bills.map((bill, index) => (
                   <div key={index} className="bg-card border rounded-lg overflow-hidden shadow-sm">
                     <div className="bg-slate-100 px-4 py-2 border-b flex justify-between items-center font-semibold">
-                      <div className="flex items-center gap-2">
-                        <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''} {bill.vehicleNumber ? `• Vehicle: ${bill.vehicleNumber}` : ''}</span>
-                        {detailsModal.session.status !== 'Completed' && (
-                          <button
-                            onClick={() => handleEditInvoiceInitiate(bill)}
-                            className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
-                          >
-                            Edit
-                          </button>
-                        )}
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''} {bill.vehicleNumber ? `• Vehicle: ${bill.vehicleNumber}` : ''}</span>
+                          {detailsModal.session.status !== 'Completed' && (
+                            <button
+                              onClick={() => handleEditInvoiceInitiate(bill)}
+                              className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground font-normal">
+                          Driver: {bill.driverName || '-'} • Phone: {bill.driverPhone || '-'}
+                        </div>
                       </div>
                       <span>₹{formatInr(bill.grandTotal)}</span>
                     </div>
@@ -898,7 +915,7 @@ export function SalesPayments() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-4 flex-1">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-muted-foreground mb-1">Date</label>
                   <input 
@@ -916,6 +933,27 @@ export function SalesPayments() {
                     className="w-full border p-2 rounded text-sm uppercase font-semibold tracking-wide bg-background"
                     value={editInvoiceVehicleNumber}
                     onChange={e => setEditInvoiceVehicleNumber(formatVehicleNumber(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">{t("driverName", lang)}</label>
+                  <input 
+                    type="text"
+                    placeholder="Enter driver name"
+                    className="w-full border p-2 rounded text-sm bg-background"
+                    value={editInvoiceDriverName}
+                    onChange={e => setEditInvoiceDriverName(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted-foreground mb-1">{t("driverPhone", lang)}</label>
+                  <input 
+                    type="tel"
+                    maxLength={10}
+                    placeholder="10 digit phone number"
+                    className="w-full border p-2 rounded text-sm bg-background font-mono"
+                    value={editInvoiceDriverPhone}
+                    onChange={e => setEditInvoiceDriverPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   />
                 </div>
               </div>

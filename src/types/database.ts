@@ -70,6 +70,8 @@ export type Sale = {
   buyer_name: string | null
   invoice_number: string | null
   vehicle_number?: string | null
+  driver_name?: string | null
+  driver_phone?: string | null
   total_amount: number
   advance?: number
   items?: Record<string, any>

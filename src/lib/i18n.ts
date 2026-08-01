@@ -125,6 +125,8 @@ const translations = {
     latestDate: "Latest Date",
     category: "Category",
     categoryTe: "Category (Telugu)",
+    driverName: "Driver Name",
+    driverPhone: "Driver Phone Number",
 
     // Placeholders & Search
     searchShop: "Search by Shop Name...",
@@ -291,6 +293,8 @@ const translations = {
     latestDate: "చివరి తేదీ",
     category: "వర్గం",
     categoryTe: "వర్గం (తెలుగు)",
+    driverName: "డ్రైవర్ పేరు",
+    driverPhone: "డ్రైవర్ ఫోన్ నంబరు",
 
     // Placeholders & Search
     searchShop: "దుకాణం పేరుతో శోధించండి...",

@@ -5,7 +5,7 @@ import { Save, Banknote, List, ChevronDown, Plus, Edit2, Trash2, Search, X, Prin
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { formatVehicleNumber, isValidVehicleNumber } from "@/lib/utils"
+import { formatVehicleNumber, isValidVehicleNumber, isValidDriverName, isValidDriverPhone } from "@/lib/utils"
 import { generateSalesCombinedPDF, shareSalesWhatsApp } from "@/lib/salesPdfUtils"
 import type { GroupedSaleSession } from "@/lib/salesPdfUtils"
 
@@ -39,6 +39,8 @@ export function Sales() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [factoryName, setFactoryName] = useState("")
   const [vehicleNumber, setVehicleNumber] = useState("")
+  const [driverName, setDriverName] = useState("")
+  const [driverPhone, setDriverPhone] = useState("")
   const [remarks, setRemarks] = useState("")
   const [advance, setAdvance] = useState<number>(0)
 
@@ -167,6 +169,12 @@ export function Sales() {
     if (vehicleNumber.trim() && !isValidVehicleNumber(vehicleNumber)) {
       return toast.error("Please enter a valid Vehicle Number (e.g. AP 27 TX 3987)")
     }
+    if (driverName.trim() && !isValidDriverName(driverName)) {
+      return toast.error("Please enter a valid Driver Name (letters, spaces, and common characters)")
+    }
+    if (driverPhone.trim() && !isValidDriverPhone(driverPhone)) {
+      return toast.error("Driver Phone Number must be exactly 10 digits")
+    }
 
     setLoading(true)
     try {
@@ -195,6 +203,8 @@ export function Sales() {
           date,
           buyer_name: factoryName,
           vehicle_number: formattedVehicle,
+          driver_name: driverName.trim() || null,
+          driver_phone: driverPhone.trim().replace(/\D/g, '') || null,
           total_amount: grandTotal,
           advance: advanceVal,
           payment_status: initialStatus,
@@ -224,6 +234,8 @@ export function Sales() {
     setRemarks("")
     setAdvance(0)
     setVehicleNumber("")
+    setDriverName("")
+    setDriverPhone("")
     setSavedSaleId(null)
   }
 
@@ -350,6 +362,29 @@ export function Sales() {
                 className="w-full border p-2 rounded bg-background font-semibold uppercase tracking-wide" 
                 value={vehicleNumber} 
                 onChange={e => setVehicleNumber(formatVehicleNumber(e.target.value))} 
+                disabled={!!savedSaleId} 
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">{t("driverName", lang)}</label>
+              <input 
+                type="text" 
+                placeholder="Driver Name" 
+                className="w-full border p-2 rounded bg-background" 
+                value={driverName} 
+                onChange={e => setDriverName(e.target.value)} 
+                disabled={!!savedSaleId} 
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">{t("driverPhone", lang)}</label>
+              <input 
+                type="tel" 
+                maxLength={10}
+                placeholder="10 digit phone number" 
+                className="w-full border p-2 rounded bg-background font-mono" 
+                value={driverPhone} 
+                onChange={e => setDriverPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} 
                 disabled={!!savedSaleId} 
               />
             </div>
@@ -484,7 +519,10 @@ export function Sales() {
                   <div>
                     <div className="font-semibold text-primary">{sale.buyer_name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {sale.date} {sale.invoice_number ? `• ${sale.invoice_number}` : ''} {sale.vehicle_number ? `• ${sale.vehicle_number}` : ''}
+                      {sale.date} {sale.invoice_number ? `• ${sale.invoice_number}` : ''} {sale.vehicle_number ? `• Vehicle: ${sale.vehicle_number}` : ''}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Driver: {sale.driver_name || '-'} ({sale.driver_phone || '-'})
                     </div>
                   </div>
                   <div className="text-right">

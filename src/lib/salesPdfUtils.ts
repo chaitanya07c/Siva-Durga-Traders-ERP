@@ -23,6 +23,8 @@ export type SalesBillBreakdown = {
   id?: string
   invoiceNumber: string | null
   vehicleNumber?: string | null
+  driverName?: string | null
+  driverPhone?: string | null
   date: string
   items: { name: string, quantity: number, rate: number, total: number }[]
   grandTotal: number
@@ -53,6 +55,8 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
       id: fb.id,
       invoiceNumber: fb.invoice_number,
       vehicleNumber: fb.vehicle_number,
+      driverName: fb.driver_name,
+      driverPhone: fb.driver_phone,
       date: fb.date,
       items: formattedItems,
       grandTotal: fb.total_amount,
@@ -152,7 +156,9 @@ export const generateSalesCombinedPDF = async (
         const metadataLeft = [
           `Buyer Name: ${session.buyer_name || 'Unknown'}`,
           ...(buyerMobile ? [`Phone No: ${buyerMobile}`] : []),
-          ...(bill.vehicleNumber ? [`Vehicle No: ${bill.vehicleNumber}`] : []),
+          `Vehicle No: ${bill.vehicleNumber || '-'}`,
+          `Driver Name: ${bill.driverName || '-'}`,
+          `Driver Phone: ${bill.driverPhone || '-'}`,
           `Remarks: ${bill.remarks || '-'}`
         ]
         

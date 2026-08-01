@@ -157,3 +157,21 @@ export function isValidVehicleNumber(vehicleNumber: string): boolean {
   const pattern = /^[A-Z]{2}\s[0-9]{2}\s[A-Z]{1,2}\s[0-9]{4}$/
   return pattern.test(formatted)
 }
+
+/**
+ * Validates Driver Name (Optional if empty; letters, spaces, dots, hyphens, apostrophes)
+ */
+export function isValidDriverName(name: string): boolean {
+  if (!name || !name.trim()) return true // Optional if empty
+  return /^[a-zA-Z\s\.\'-]+$/.test(name.trim())
+}
+
+/**
+ * Validates Driver Phone Number (Optional if empty; numeric input, exactly 10 digits)
+ */
+export function isValidDriverPhone(phone: string): boolean {
+  if (!phone || !phone.trim()) return true // Optional if empty
+  const digits = phone.trim().replace(/\D/g, '')
+  return digits.length === 10
+}
+
