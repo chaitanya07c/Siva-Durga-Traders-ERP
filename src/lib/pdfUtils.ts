@@ -370,7 +370,7 @@ export const generateCombinedGroupPDF = async (
   targetShop: Shop,
   billIds?: string[],
   preloadedBills?: BillBreakdown[],
-  date?: string
+  _date?: string
 ): Promise<Blob | undefined> => {
   const toastId = toast.loading("Generating Combined PDF...")
   try {
@@ -422,21 +422,6 @@ export const generateCombinedGroupPDF = async (
       }
 
       const { data: fullBills, error: fetchError } = await query.order('date', { ascending: true })
-
-      console.log("=== COMBINED PDF DEBUG ===", {
-        shopName: targetShop.name,
-        combinedFlag: targetShop.marked_for_combined_bill,
-        date: date || fullBills?.[0]?.date,
-        grandTotal: fullBills?.reduce((sum, b) => sum + b.grand_total, 0),
-        billsLoadedForPDF: fullBills?.map(p => ({
-          id: p.id,
-          bill_number: p.bill_number,
-          grand_total: p.grand_total,
-          payment_status: p.payment_status,
-          session_id: p.session_id,
-          date: p.date
-        }))
-      })
 
       if (fetchError) {
         console.error("Failed to query group purchases:", fetchError)

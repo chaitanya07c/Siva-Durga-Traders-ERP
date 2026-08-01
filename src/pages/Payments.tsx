@@ -249,16 +249,6 @@ export function Payments() {
         const groupBillIds = groupPurchases.map(p => p.id)
         const overallTotal = groupPurchases.reduce((sum, p) => sum + p.grand_total, 0)
         const totalPartialPayment = groupPurchases.reduce((sum, p) => sum + (p.session_partial_payment || 0), 0)
-        
-        console.log("=== COMBINED COMPLETE PAYMENT INITIATE DEBUG ===", {
-          purchaseId: session.id,
-          sessionId: session.session_id,
-          shopName: shop.name,
-          combinedFlag: shop.marked_for_combined_bill,
-          date: session.date,
-          grandTotal: overallTotal,
-          billsLoadedForCompletePayment: groupPurchases
-        })
 
         setPaymentModal({
           ...session,
@@ -372,23 +362,6 @@ export function Payments() {
           const overallTotal = purchases.reduce((sum, p) => sum + p.grand_total, 0)
           const totalPartialPayment = purchases.reduce((sum, p) => sum + (p.session_partial_payment || 0), 0)
 
-          console.log("=== COMBINED VIEW DETAILS DEBUG ===", {
-            purchaseId: session.id,
-            sessionId: session.session_id,
-            shopName: shop.name,
-            combinedFlag: shop.marked_for_combined_bill,
-            date: session.date,
-            grandTotal: overallTotal,
-            billsLoadedForViewDetails: purchases.map(p => ({
-              id: p.id,
-              bill_number: p.bill_number,
-              grand_total: p.grand_total,
-              payment_status: p.payment_status,
-              session_id: p.session_id,
-              date: p.date
-            }))
-          })
-          
           const { data: allItems } = await supabase
             .from('purchase_items')
             .select('*, materials(name, name_te)')
