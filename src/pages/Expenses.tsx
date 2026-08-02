@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Expense } from "@/types/database"
 import { Plus, Edit2, Trash2, Search, Download, Printer, FileSpreadsheet, Receipt } from "lucide-react"
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { formatDate } from "@/lib/utils"
+import { formatDate, toLocalDateString, getStartOfMonthString, getEndOfMonthString, getMsUntilNextMidnight } from "@/lib/utils"
 import { generateTablePDF } from "@/lib/pdfTemplate"
 import { addToRecycleBin } from "@/lib/recycleBin"
 import * as XLSX from "xlsx"
@@ -143,9 +143,11 @@ export function Expenses() {
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("All")
   
-  // Date range filter
-  const [startDate, setStartDate] = useState("")
-  const [endDate, setEndDate] = useState("")
+  // Date range filter: default to 1st day & last day of current local month
+  const [startDate, setStartDate] = useState(() => getStartOfMonthString(new Date()))
+  const [endDate, setEndDate] = useState(() => getEndOfMonthString(new Date()))
+  const [isUserModifiedDateRange, setIsUserModifiedDateRange] = useState(false)
+  const currentMonthKeyRef = useRef<string>("")
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
@@ -157,7 +159,7 @@ export function Expenses() {
     amount: number | string
     remarks: string
   }>({
-    date: new Date().toISOString().split('T')[0],
+    date: toLocalDateString(new Date()),
     category: EXPENSE_CATEGORIES[0],
     amount: "",
     remarks: ""
@@ -184,7 +186,58 @@ export function Expenses() {
 
   useEffect(() => {
     fetchExpenses()
-  }, [])
+
+    const checkAndRefreshMonth = () => {
+      const now = new Date()
+      const newMonthKey = getStartOfMonthString(now).slice(0, 7)
+      if (!currentMonthKeyRef.current) {
+        currentMonthKeyRef.current = newMonthKey
+      } else if (currentMonthKeyRef.current !== newMonthKey) {
+        currentMonthKeyRef.current = newMonthKey
+        if (!isUserModifiedDateRange) {
+          setStartDate(getStartOfMonthString(now))
+          setEndDate(getEndOfMonthString(now))
+        }
+      }
+    }
+
+    checkAndRefreshMonth()
+
+    // 1. Precise Midnight Timer (triggers at 12:00:00 AM local timezone)
+    let midnightTimerId: ReturnType<typeof setTimeout>
+
+    const scheduleMidnightTimer = () => {
+      const ms = getMsUntilNextMidnight()
+      midnightTimerId = setTimeout(() => {
+        checkAndRefreshMonth()
+        scheduleMidnightTimer()
+      }, ms + 250)
+    }
+
+    scheduleMidnightTimer()
+
+    // 2. Periodic Guard Interval (every 10 seconds)
+    const intervalId = setInterval(() => {
+      checkAndRefreshMonth()
+    }, 10000)
+
+    // 3. Tab Focus & Visibility Change Listener
+    const handleFocusOrVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkAndRefreshMonth()
+      }
+    }
+
+    window.addEventListener('focus', handleFocusOrVisibility)
+    document.addEventListener('visibilitychange', handleFocusOrVisibility)
+
+    return () => {
+      clearTimeout(midnightTimerId)
+      clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocusOrVisibility)
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility)
+    }
+  }, [isUserModifiedDateRange])
 
   const fetchExpenses = async () => {
     const { data, error } = await supabase
@@ -203,7 +256,7 @@ export function Expenses() {
   const resetForm = () => {
     setEditingExpense(null)
     setFormData({
-      date: new Date().toISOString().split('T')[0],
+      date: toLocalDateString(new Date()),
       category: EXPENSE_CATEGORIES[0],
       amount: "",
       remarks: ""
@@ -527,7 +580,10 @@ export function Expenses() {
               type="date" 
               className="w-full border p-2 rounded-lg text-sm bg-background"
               value={startDate}
-              onChange={e => setStartDate(e.target.value)}
+              onChange={e => {
+                setStartDate(e.target.value)
+                setIsUserModifiedDateRange(true)
+              }}
             />
           </div>
 
@@ -538,7 +594,10 @@ export function Expenses() {
               type="date" 
               className="w-full border p-2 rounded-lg text-sm bg-background"
               value={endDate}
-              onChange={e => setEndDate(e.target.value)}
+              onChange={e => {
+                setEndDate(e.target.value)
+                setIsUserModifiedDateRange(true)
+              }}
             />
           </div>
         </div>
