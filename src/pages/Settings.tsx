@@ -5,7 +5,7 @@ import type { Material } from "@/types/database"
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { getRecycleBinItems, restoreFromRecycleBin, deletePermanentlyFromRecycleBin, type RecycleBinItem } from "@/lib/recycleBin"
+import { getRecycleBinItems, restoreFromRecycleBin, deletePermanentlyFromRecycleBin, addToRecycleBin, type RecycleBinItem } from "@/lib/recycleBin"
 import { formatDate } from "@/lib/utils"
 
 const formatInr = (val: number) => new Intl.NumberFormat('en-IN').format(val)
@@ -134,8 +134,20 @@ export function Settings() {
   const handleDeleteItem = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete ${name}?`)) return
     try {
+      const { data: matData } = await supabase.from('materials').select('*').eq('id', id).single()
+      if (matData) {
+        await addToRecycleBin({
+          id: crypto.randomUUID(),
+          type: 'material',
+          item_id: matData.id,
+          title: `Item: ${matData.name}`,
+          amount: Number(matData.default_cost || 0),
+          data: { material: matData },
+          deleted_at: new Date().toISOString()
+        })
+      }
       await supabase.from('materials').delete().eq('id', id)
-      toast.success("Item deleted")
+      toast.success("Item moved to Recycle Bin!")
       loadMaterials()
     } catch (err: any) {
       toast.error(err.message || "Error deleting item")
@@ -354,48 +366,71 @@ export function Settings() {
                   <table className="w-full text-sm text-left">
                     <thead className="bg-muted">
                       <tr>
-                        <th className="px-4 py-3 font-semibold">{lang === 'te' ? "దుకాణం పేరు" : "Shop Name"}</th>
-                        <th className="px-4 py-3 font-semibold">{lang === 'te' ? "బిల్ సంఖ్య" : "Bill Number"}</th>
+                        <th className="px-4 py-3 font-semibold">Module</th>
+                        <th className="px-4 py-3 font-semibold">Record / Title</th>
                         <th className="px-4 py-3 font-semibold">{t("deletedDate", lang)}</th>
                         <th className="px-4 py-3 font-semibold text-right">{lang === 'te' ? "మొత్తం అమౌంట్" : "Amount"}</th>
                         <th className="px-4 py-3 font-semibold text-center">{t("actions", lang)}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {recycleBinItems.map((item) => (
-                        <tr key={item.id} className="hover:bg-muted/20 transition-colors">
-                          <td className="px-4 py-3.5 font-bold text-foreground">
-                            {item.shop_name}
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground font-medium">
-                            {item.bill_number ? `#${item.bill_number}` : (item.title || 'N/A')}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-muted-foreground">
-                            {formatDate(item.deleted_at)} {new Date(item.deleted_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                          </td>
-                          <td className="px-4 py-3 text-right font-extrabold text-foreground">
-                            ₹{formatInr(item.amount)}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <button
-                                onClick={() => setConfirmModal({ action: 'restore', item })}
-                                className="bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center transition-colors shadow-sm"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                                {t("restore", lang)}
-                              </button>
-                              <button
-                                onClick={() => setConfirmModal({ action: 'delete', item })}
-                                className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center transition-colors shadow-sm"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 mr-1" />
-                                {t("deletePermanently", lang)}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {recycleBinItems.map((item) => {
+                        const typeLabel = 
+                          item.type === 'purchase_bill' || item.type === 'purchase' ? 'Purchasing' :
+                          item.type === 'sale_bill' || item.type === 'sale' ? 'Sales' :
+                          item.type === 'shop' ? 'Shop' :
+                          item.type === 'worker' || item.type === 'employee' ? 'Worker' :
+                          item.type === 'expense' ? 'Expense' :
+                          item.type === 'buyer' ? 'Buyer' :
+                          item.type === 'material' ? 'Stock / Material' :
+                          item.type === 'loading' ? 'Loading' : 'Other'
+
+                        const badgeColor = 
+                          typeLabel === 'Purchasing' ? 'bg-purple-100 text-purple-700' :
+                          typeLabel === 'Sales' ? 'bg-blue-100 text-blue-700' :
+                          typeLabel === 'Shop' ? 'bg-amber-100 text-amber-700' :
+                          typeLabel === 'Worker' ? 'bg-emerald-100 text-emerald-700' :
+                          typeLabel === 'Expense' ? 'bg-red-100 text-red-700' :
+                          typeLabel === 'Buyer' ? 'bg-indigo-100 text-indigo-700' :
+                          'bg-slate-100 text-slate-700'
+
+                        return (
+                          <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                            <td className="px-4 py-3.5 whitespace-nowrap">
+                              <span className={`px-2.5 py-1 rounded text-xs font-bold ${badgeColor}`}>
+                                {typeLabel}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 font-bold text-foreground">
+                              {item.title || item.shop_name || (item.bill_number ? `Bill #${item.bill_number}` : 'Deleted Item')}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                              {formatDate(item.deleted_at)} {new Date(item.deleted_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="px-4 py-3 text-right font-extrabold text-foreground whitespace-nowrap">
+                              {Number(item.amount || 0) > 0 ? `₹${formatInr(item.amount)}` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-center whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => setConfirmModal({ action: 'restore', item })}
+                                  className="bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center transition-colors shadow-sm"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                                  {t("restore", lang)}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmModal({ action: 'delete', item })}
+                                  className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center transition-colors shadow-sm"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                                  {t("deletePermanently", lang)}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>

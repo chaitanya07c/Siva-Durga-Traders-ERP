@@ -7,6 +7,7 @@ import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import { formatDate, toLocalDateString, getStartOfMonthString, getEndOfMonthString } from "@/lib/utils"
 import { generateTablePDF } from "@/lib/pdfTemplate"
+import { addToRecycleBin } from "@/lib/recycleBin"
 import * as XLSX from "xlsx"
 
 export function Workers() {
@@ -95,8 +96,27 @@ export function Workers() {
 
   const deleteEmployee = async (id: string) => {
     if (!confirm(lang === 'te' ? "ఈ పనిమనిషిని తొలగించాలనుకుంటున్నారా?" : "Delete this worker?")) return
-    await supabase.from('employees').delete().eq('id', id)
-    fetchEmployees()
+    try {
+      const { data: empData } = await supabase.from('employees').select('*').eq('id', id).single()
+      const { data: attData } = await supabase.from('attendance').select('*').eq('employee_id', id)
+      if (empData) {
+        await addToRecycleBin({
+          id: crypto.randomUUID(),
+          type: 'worker',
+          item_id: empData.id,
+          title: `Worker: ${empData.name}`,
+          amount: Number(empData.daily_wage || 0),
+          data: { employee: empData, attendance: attData || [] },
+          deleted_at: new Date().toISOString()
+        })
+      }
+      await supabase.from('attendance').delete().eq('employee_id', id)
+      await supabase.from('employees').delete().eq('id', id)
+      toast.success(lang === 'te' ? "పనిమనిషి రీసైకిల్ బిన్‌కు తరలించబడింది" : "Worker moved to Recycle Bin!")
+      fetchEmployees()
+    } catch (err: any) {
+      toast.error("Failed to delete worker: " + (err.message || ""))
+    }
   }
 
   const markAttendance = async (empId: string, status: string, date: string) => {

@@ -2,16 +2,13 @@ import { supabase } from '@/lib/supabase'
 
 export type RecycleBinItem = {
   id: string
-  type: 'purchase_bill'
+  type: 'purchase_bill' | 'purchase' | 'sale_bill' | 'sale' | 'shop' | 'worker' | 'employee' | 'expense' | 'buyer' | 'material' | 'loading' | string
   item_id: string
   title: string
-  shop_name: string
-  bill_number: string
+  shop_name?: string
+  bill_number?: string
   amount: number
-  data: {
-    purchase: any
-    purchase_items: any[]
-  }
+  data: Record<string, any>
   deleted_at: string
 }
 
@@ -47,9 +44,9 @@ export const addToRecycleBin = async (item: RecycleBinItem): Promise<boolean> =>
       type: item.type,
       item_id: item.item_id,
       title: item.title,
-      shop_name: item.shop_name,
-      bill_number: item.bill_number,
-      amount: item.amount,
+      shop_name: item.shop_name || '',
+      bill_number: item.bill_number || '',
+      amount: item.amount || 0,
       data: item.data,
       deleted_at: item.deleted_at
     }])
@@ -76,9 +73,9 @@ export const getRecycleBinItems = async (): Promise<RecycleBinItem[]> => {
         id: d.id,
         type: d.type || 'purchase_bill',
         item_id: d.item_id,
-        title: d.title,
-        shop_name: d.shop_name,
-        bill_number: d.bill_number,
+        title: d.title || d.shop_name || 'Deleted Item',
+        shop_name: d.shop_name || '',
+        bill_number: d.bill_number || '',
         amount: Number(d.amount || 0),
         data: d.data,
         deleted_at: d.deleted_at
@@ -96,30 +93,86 @@ export const restoreFromRecycleBin = async (id: string): Promise<boolean> => {
   const target = items.find(i => i.id === id)
   if (!target) throw new Error("Recycle bin item not found")
 
-  const { purchase, purchase_items } = target.data
+  const { type, data } = target
 
-  if (!purchase) throw new Error("Invalid bill data for restoration")
-
-  // 1. Re-insert purchase row into Supabase
-  const { error: purchaseErr } = await supabase.from('purchases').insert([purchase])
-  if (purchaseErr) throw purchaseErr
-
-  // 2. Re-insert purchase_items rows into Supabase if any
-  if (purchase_items && purchase_items.length > 0) {
-    const { error: itemsErr } = await supabase.from('purchase_items').insert(purchase_items)
-    if (itemsErr) {
-      console.warn("Error re-inserting purchase items during restore:", itemsErr.message)
+  if (type === 'purchase_bill' || type === 'purchase') {
+    const { purchase, purchase_items } = data
+    if (purchase) {
+      const { error: purchaseErr } = await supabase.from('purchases').insert([purchase])
+      if (purchaseErr) throw purchaseErr
+      if (purchase_items && purchase_items.length > 0) {
+        await supabase.from('purchase_items').insert(purchase_items)
+      }
+    }
+  } else if (type === 'sale_bill' || type === 'sale') {
+    const { sale, sale_items } = data
+    if (sale) {
+      const { error: saleErr } = await supabase.from('sales').insert([sale])
+      if (saleErr) throw saleErr
+      if (sale_items && sale_items.length > 0) {
+        await supabase.from('sale_items').insert(sale_items)
+      }
+    }
+  } else if (type === 'shop') {
+    const { shop } = data
+    if (shop) {
+      const { error } = await supabase.from('shops').insert([shop])
+      if (error) throw error
+    }
+  } else if (type === 'worker' || type === 'employee') {
+    const { employee, attendance } = data
+    if (employee) {
+      const { error } = await supabase.from('employees').insert([employee])
+      if (error) throw error
+      if (attendance && attendance.length > 0) {
+        await supabase.from('attendance').insert(attendance)
+      }
+    }
+  } else if (type === 'expense') {
+    const { expense } = data
+    if (expense) {
+      const { error } = await supabase.from('expenses').insert([expense])
+      if (error) throw error
+    }
+  } else if (type === 'buyer') {
+    const { buyer } = data
+    if (buyer) {
+      const { error } = await supabase.from('buyers').insert([buyer])
+      if (error) throw error
+    }
+  } else if (type === 'material') {
+    const { material } = data
+    if (material) {
+      const { error } = await supabase.from('materials').insert([material])
+      if (error) throw error
+    }
+  } else if (type === 'loading') {
+    const { loading } = data
+    if (loading) {
+      const { error } = await supabase.from('completed_loadings').insert([loading])
+      if (error) throw error
+    }
+  } else {
+    // Generic fallback for any record
+    if (data && typeof data === 'object') {
+      for (const [tableName, recordOrArray] of Object.entries(data)) {
+        if (Array.isArray(recordOrArray) && recordOrArray.length > 0) {
+          await supabase.from(tableName).insert(recordOrArray)
+        } else if (recordOrArray && typeof recordOrArray === 'object' && !Array.isArray(recordOrArray)) {
+          await supabase.from(tableName).insert([recordOrArray])
+        }
+      }
     }
   }
 
-  // 3. Remove from Supabase recycle_bin table
+  // Remove from Supabase recycle_bin table
   try {
     await supabase.from('recycle_bin').delete().eq('id', id)
   } catch (e) {
-    // Ignore error if table doesn't exist
+    // Ignore error
   }
 
-  // 4. Remove from localStorage
+  // Remove from localStorage
   const localItems = getLocalRecycleBin()
   const updatedLocal = localItems.filter(i => i.id !== id)
   setLocalRecycleBin(updatedLocal)

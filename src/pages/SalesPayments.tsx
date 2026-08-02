@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet } from "lucide-react"
+import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet, Trash2, Edit2 } from "lucide-react"
 import { toast } from "sonner"
 import { fetchSalesBillBreakdowns, generateSalesCombinedPDF, shareSalesWhatsApp, formatQuantity } from "@/lib/salesPdfUtils"
 import type { GroupedSaleSession, SalesBillBreakdown } from "@/lib/salesPdfUtils"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import { formatDate, formatVehicleNumber, isValidVehicleNumber, isValidDriverName, isValidDriverPhone } from "@/lib/utils"
+import { addToRecycleBin } from "@/lib/recycleBin"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -35,6 +36,9 @@ export function SalesPayments() {
   const [editInvoiceAdvance, setEditInvoiceAdvance] = useState(0)
   const [editInvoicePartialPayment, setEditInvoicePartialPayment] = useState(0)
   const [editInvoiceItems, setEditInvoiceItems] = useState<{ name: string, quantity: number, rate: number, total: number }[]>([])
+
+  // Delete Invoice state
+  const [deletingSalesBill, setDeletingSalesBill] = useState<SalesBillBreakdown | null>(null)
 
   const [paymentInputAmount, setPaymentInputAmount] = useState<number>(0)
   const [advanceInputAmount, setAdvanceInputAmount] = useState<number>(0)
@@ -396,6 +400,80 @@ export function SalesPayments() {
     }
   }
 
+  const handleConfirmDeleteSalesBill = async () => {
+    if (!deletingSalesBill) return
+    const billToDelete = deletingSalesBill
+    setDeletingSalesBill(null)
+
+    try {
+      // 1. Fetch full sale record and sale_items
+      const { data: saleData } = await supabase
+        .from('sales')
+        .select('*')
+        .eq('id', billToDelete.id)
+        .single()
+
+      const { data: itemsData } = await supabase
+        .from('sale_items')
+        .select('*')
+        .eq('sale_id', billToDelete.id)
+
+      if (!saleData) throw new Error("Sale record not found")
+
+      // 2. Add to Recycle Bin
+      const buyerName = detailsModal?.session.buyer_name || saleData.buyer_name || 'Buyer'
+      await addToRecycleBin({
+        id: crypto.randomUUID(),
+        type: 'sale_bill',
+        item_id: billToDelete.id || saleData.id || '',
+        title: `Invoice #${billToDelete.invoiceNumber || 'N/A'} - ${buyerName}`,
+        shop_name: buyerName,
+        bill_number: String(billToDelete.invoiceNumber || ''),
+        amount: billToDelete.grandTotal,
+        data: {
+          sale: saleData,
+          sale_items: itemsData || []
+        },
+        deleted_at: new Date().toISOString()
+      })
+
+      // 3. Delete sale_items and sales row from Supabase
+      await supabase.from('sale_items').delete().eq('sale_id', billToDelete.id)
+      await supabase.from('sales').delete().eq('id', billToDelete.id)
+
+      toast.success("Invoice moved to Recycle Bin!")
+
+      // 4. Reload main list & cards
+      await loadSessions()
+
+      // 5. Update or close detailsModal
+      if (detailsModal) {
+        const remainingBillIds = detailsModal.session.bill_ids.filter(id => id !== billToDelete.id)
+        if (remainingBillIds.length === 0) {
+          setDetailsModal(null)
+        } else {
+          const { data: remainingSales } = await supabase
+            .from('sales')
+            .select('total_amount')
+            .in('id', remainingBillIds)
+
+          const newOverallTotal = remainingSales?.reduce((sum, s) => sum + Number(s.total_amount || 0), 0) || 0
+
+          const updatedSession = {
+            ...detailsModal.session,
+            overallTotal: newOverallTotal,
+            bill_ids: remainingBillIds
+          }
+
+          const bills = await fetchSalesBillBreakdowns(updatedSession, lang)
+          setDetailsModal({ session: updatedSession, bills })
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete invoice")
+    }
+  }
+
   const filteredSessions = groupedSessions.filter(s => 
     s.buyer_name.toLowerCase().includes(searchQuery.toLowerCase())
   )
@@ -593,14 +671,22 @@ export function SalesPayments() {
                           {detailsModal.session.status !== 'Completed' && (
                             <button
                               onClick={() => handleEditInvoiceInitiate(bill)}
-                              className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold"
+                              className="text-blue-600 hover:text-blue-800 text-xs px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold flex items-center gap-1"
                             >
-                              Edit
+                              <Edit2 className="w-3 h-3" /> Edit
                             </button>
                           )}
+                          <button
+                            onClick={() => setDeletingSalesBill(bill)}
+                            className="text-red-600 hover:text-red-800 text-xs px-2.5 py-1 rounded bg-red-50 hover:bg-red-100 border border-red-200 transition-colors font-bold flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" /> Delete
+                          </button>
                         </div>
-                        <div className="text-xs text-muted-foreground font-normal">
-                          Driver: {bill.driverName || '-'} • Phone: {bill.driverPhone || '-'}
+                        <div className="text-xs text-muted-foreground font-normal mt-0.5">
+                          Driver: <span className="font-semibold text-slate-700">{bill.driverName || '-'}</span>
+                          <span className="mx-2">•</span>
+                          Driver Phone: <span className="font-semibold text-slate-700">{bill.driverPhone || '-'}</span>
                         </div>
                       </div>
                       <span>₹{formatInr(bill.grandTotal)}</span>
@@ -929,7 +1015,7 @@ export function SalesPayments() {
                   <label className="block text-xs font-semibold text-muted-foreground mb-1">Vehicle Number</label>
                   <input 
                     type="text"
-                    placeholder="e.g. AP 27 TX 3987"
+                    placeholder="AP 37 TD 5799"
                     className="w-full border p-2 rounded text-sm uppercase font-semibold tracking-wide bg-background"
                     value={editInvoiceVehicleNumber}
                     onChange={e => setEditInvoiceVehicleNumber(formatVehicleNumber(e.target.value))}
@@ -1094,6 +1180,57 @@ export function SalesPayments() {
                 className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium mt-2"
               >
                 {lang === 'te' ? "మూసివేయండి" : "Close"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Sales Bill Confirmation Modal */}
+      {deletingSalesBill && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-background w-full max-w-md rounded-2xl shadow-xl overflow-hidden p-6 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-3 bg-red-100 rounded-full">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Delete Sales Invoice</h3>
+                <p className="text-xs text-muted-foreground">Move this invoice to the Recycle Bin?</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border rounded-xl p-4 space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Invoice #:</span>
+                <span className="font-semibold">{deletingSalesBill.invoiceNumber || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Buyer:</span>
+                <span className="font-semibold">{detailsModal?.session.buyer_name || '-'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Amount:</span>
+                <span className="font-bold text-red-600">₹{formatInr(deletingSalesBill.grandTotal)}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              This invoice will be moved to the Recycle Bin. You can restore it anytime from Settings → Recycle Bin.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setDeletingSalesBill(null)}
+                className="px-4 py-2 border rounded-lg hover:bg-muted text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDeleteSalesBill}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium transition-colors shadow-sm"
+              >
+                Move to Recycle Bin
               </button>
             </div>
           </div>

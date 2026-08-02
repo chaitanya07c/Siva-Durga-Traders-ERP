@@ -5,6 +5,7 @@ import { Plus, Search, Edit2, Trash2, History, Mic } from "lucide-react"
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
+import { addToRecycleBin } from "@/lib/recycleBin"
 
 const WINE_FIXED_ITEMS = ["Beer", "L.C.'s", "Full's", "Atta", "Plastic", "Nibe Box", "Beer Box"]
 const IRON_FIXED_ITEMS = ["Glass", "Beer"]
@@ -72,11 +73,26 @@ export function Shops() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this shop?")) return
-    const { error } = await supabase.from('shops').delete().eq('id', id)
-    if (error) toast.error("Failed to delete")
-    else {
-      toast.success("Shop deleted")
+    try {
+      const { data: shopData } = await supabase.from('shops').select('*').eq('id', id).single()
+      if (shopData) {
+        await addToRecycleBin({
+          id: crypto.randomUUID(),
+          type: 'shop',
+          item_id: shopData.id,
+          title: `Shop: ${shopData.name}`,
+          shop_name: shopData.name,
+          amount: 0,
+          data: { shop: shopData },
+          deleted_at: new Date().toISOString()
+        })
+      }
+      const { error } = await supabase.from('shops').delete().eq('id', id)
+      if (error) throw error
+      toast.success("Shop moved to Recycle Bin!")
       fetchShops()
+    } catch (err: any) {
+      toast.error("Failed to delete shop: " + (err.message || ""))
     }
   }
 

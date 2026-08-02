@@ -8,6 +8,7 @@ import { t } from "@/lib/i18n"
 import { formatVehicleNumber, isValidVehicleNumber, isValidDriverName, isValidDriverPhone } from "@/lib/utils"
 import { generateSalesCombinedPDF, shareSalesWhatsApp } from "@/lib/salesPdfUtils"
 import type { GroupedSaleSession } from "@/lib/salesPdfUtils"
+import { addToRecycleBin } from "@/lib/recycleBin"
 
 type SalesItem = { name: string, quantity: number, rate: number, total: number }
 
@@ -123,12 +124,24 @@ export function Sales() {
   const handleDeleteBuyer = async (id: string, name: string) => {
     if (!confirm(`Delete buyer "${name}"?`)) return
     try {
+      const { data: buyerData } = await supabase.from('buyers').select('*').eq('id', id).single()
+      if (buyerData) {
+        await addToRecycleBin({
+          id: crypto.randomUUID(),
+          type: 'buyer',
+          item_id: buyerData.id,
+          title: `Buyer: ${buyerData.name}`,
+          amount: 0,
+          data: { buyer: buyerData },
+          deleted_at: new Date().toISOString()
+        })
+      }
       await supabase.from('buyers').delete().eq('id', id)
-      toast.success("Buyer deleted")
+      toast.success("Buyer moved to Recycle Bin!")
       if (factoryName === name) setFactoryName("")
       loadBuyers()
     } catch (err: any) {
-      toast.error("Error deleting buyer")
+      toast.error("Error deleting buyer: " + (err.message || ""))
     }
   }
 
@@ -358,7 +371,7 @@ export function Sales() {
               <label className="block text-sm font-medium mb-1">Vehicle Number</label>
               <input 
                 type="text" 
-                placeholder="e.g. AP 27 TX 3987" 
+                placeholder="AP 37 TD 5799" 
                 className="w-full border p-2 rounded bg-background font-semibold uppercase tracking-wide" 
                 value={vehicleNumber} 
                 onChange={e => setVehicleNumber(formatVehicleNumber(e.target.value))} 
