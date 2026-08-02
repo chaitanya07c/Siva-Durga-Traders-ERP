@@ -6,6 +6,7 @@ import { useSearchParams, useOutletContext } from "react-router-dom"
 import { generateCombinedPDF, shareWhatsApp, buildCurrentSession } from "@/lib/pdfUtils"
 import { Printer, Download, Share2, Save, StoreIcon, CheckCircle2, Search, Mic } from "lucide-react"
 import { t } from "@/lib/i18n"
+import { getItemUnit } from "@/lib/utils"
 
 const WINE_FIXED_ITEMS = ["Beer", "L.C.'s", "Full's", "Atta", "Plastic", "Nibe Box", "Beer Box"]
 const IRON_FIXED_ITEMS = ["Glass", "Beer"]
@@ -193,7 +194,7 @@ export function Purchasing() {
           material_id: mat?.id || null,
           item_name: item.name,
           quantity: item.quantity,
-          unit: item.name === 'Glass' ? 'Kg' : 'Nos',
+          unit: getItemUnit(item.name, 'purchasing'),
           rate: item.rate,
           total: item.total
         }

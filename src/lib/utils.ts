@@ -175,3 +175,61 @@ export function isValidDriverPhone(phone: string): boolean {
   return digits.length === 10
 }
 
+/**
+ * Helper function to determine if an item belongs to the Beer Bottles category or is a Beer brand.
+ */
+export function isBeerBottleItem(itemName: string, category?: string): boolean {
+  if (!itemName) return false
+  const nameLower = itemName.trim().toLowerCase()
+  const catLower = (category || '').trim().toLowerCase()
+
+  if (catLower.includes('beer bottle') || catLower === 'beer bottles' || catLower === 'beer') {
+    return true
+  }
+
+  // Non-beer exceptions
+  if (nameLower.includes('water') || nameLower.includes('box')) {
+    return false
+  }
+
+  const beerKeywords = [
+    'beer',
+    'budweiser',
+    'kajora',
+    'kingfisher',
+    '10,000',
+    '10000',
+    'tuborg',
+    'carlsberg',
+    'haywards',
+    'bira',
+    'heineken',
+    'corona'
+  ]
+
+  return beerKeywords.some(kw => nameLower.includes(kw))
+}
+
+/**
+ * Returns unit of measurement ('Kg' or 'Nos') for a given item name.
+ * Purchasing Stock: Atta, Plastic, Glass, Plastic Cover are 'Kg'; all others are 'Nos'.
+ * Sales Stock: Beer Bottle category items are 'Nos'. ALL OTHER Sales items are 'Kg'!
+ */
+export function getItemUnit(itemName: string, context: 'purchasing' | 'sales' = 'sales', category?: string): 'Kg' | 'Nos' {
+  if (!itemName) return 'Nos'
+  const name = itemName.trim()
+
+  if (context === 'purchasing') {
+    const purchasingKgItems = ['Atta', 'Plastic', 'Glass', 'Plastic Cover']
+    return purchasingKgItems.some(k => k.toLowerCase() === name.toLowerCase()) ? 'Kg' : 'Nos'
+  }
+
+  // Sales context rule:
+  // ✅ Beer Bottle category / brands -> Nos
+  // ✅ All remaining Sales Stock items -> Kg
+  if (isBeerBottleItem(name, category)) {
+    return 'Nos'
+  }
+  return 'Kg'
+}
+

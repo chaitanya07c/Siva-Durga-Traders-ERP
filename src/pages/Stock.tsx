@@ -3,7 +3,7 @@ import { supabase } from "@/lib/supabase"
 import { Calendar, Boxes, TrendingUp, AlertCircle, Info, Download, FileSpreadsheet, Printer } from "lucide-react"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { toLocalDateString, getStartOfMonthString } from "@/lib/utils"
+import { toLocalDateString, getStartOfMonthString, getItemUnit } from "@/lib/utils"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import * as XLSX from "xlsx"
@@ -263,7 +263,7 @@ export function Stock() {
       const tableRows = itemNames.map(item => [
         getItemDisplayName(item, 'en'),
         formatQuantity(stockData[item] || 0),
-        item === 'Glass' ? 'Kg' : 'Nos'
+        getItemUnit(item, activeTab === 'Purchasing' ? 'purchasing' : 'sales')
       ])
 
       if (tableRows.length === 0) {
@@ -324,7 +324,6 @@ export function Stock() {
       doc.save(filename)
     } else if (action === 'print') {
       doc.autoPrint()
-      window.open(doc.output('bloburl'), '_blank')
     }
   }
 
@@ -337,13 +336,13 @@ export function Stock() {
       return
     }
 
-    const startFmt = startDate.split('-').reverse().join('-')
-    const endFmt = endDate.split('-').reverse().join('-')
-    const filename = `${activeTab}_Stock_${startFmt}_to_${endFmt}.xlsx`
-    const qtyColHeader = activeTab === "Purchasing" ? "Purchased Quantity" : "Sold Quantity"
-    const itemNames = activeTab === "Purchasing" ? purchasingItemNames : salesSoldItemNames
-    const rangeData = activeTab === "Purchasing" ? purchasingRangeStock : salesRangeStock
-    const overallData = activeTab === "Purchasing" ? purchasingOverallStock : salesOverallStock
+    const startFmt = startDate ? startDate.split('-').reverse().join('-') : 'Start'
+    const endFmt = endDate ? endDate.split('-').reverse().join('-') : 'End'
+    const filename = `${activeTab}_Stock_${startDate || 'start'}_to_${endDate || 'end'}.xlsx`
+    const qtyColHeader = activeTab === 'Purchasing' ? 'Purchased Quantity' : 'Sold Quantity'
+    const itemNames = activeTab === 'Purchasing' ? purchasingItemNames : salesSoldItemNames
+    const rangeData = activeTab === 'Purchasing' ? purchasingRangeStock : salesRangeStock
+    const overallData = activeTab === 'Purchasing' ? purchasingOverallStock : salesOverallStock
 
     const sheetData: any[] = [
       { "Section": "REPORT INFORMATION", "Item Name": "Date Range", [qtyColHeader]: `${startFmt} to ${endFmt}`, "Unit": "" },
@@ -356,7 +355,7 @@ export function Stock() {
         "Section": `Period ${activeTab} Stock`,
         "Item Name": item,
         [qtyColHeader]: rangeData[item] || 0,
-        "Unit": item === 'Glass' ? 'Kg' : 'Nos'
+        "Unit": getItemUnit(item, activeTab === 'Purchasing' ? 'purchasing' : 'sales')
       })
     })
 
@@ -368,7 +367,7 @@ export function Stock() {
         "Section": `Overall ${activeTab} Stock`,
         "Item Name": item,
         [qtyColHeader]: overallData[item] || 0,
-        "Unit": item === 'Glass' ? 'Kg' : 'Nos'
+        "Unit": getItemUnit(item, activeTab === 'Purchasing' ? 'purchasing' : 'sales')
       })
     })
 
@@ -533,7 +532,7 @@ export function Stock() {
                         {formatQuantity(qty)}
                       </h3>
                       <span className="text-xs font-medium text-slate-500 bg-muted px-2 py-0.5 rounded-full">
-                        {item === 'Glass' ? 'Kg' : 'Nos'}
+                        {getItemUnit(item, 'purchasing')}
                       </span>
                     </div>
                   </div>
@@ -575,7 +574,7 @@ export function Stock() {
                         {formatQuantity(qty)}
                       </h3>
                       <span className="text-xs font-medium text-purple-700 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-full">
-                        {item === 'Glass' ? 'Kg' : 'Nos'}
+                        {getItemUnit(item, 'purchasing')}
                       </span>
                     </div>
                   </div>
@@ -628,7 +627,7 @@ export function Stock() {
                           {formatQuantity(qty)}
                         </h3>
                         <span className="text-xs font-medium text-slate-500 bg-muted px-2 py-0.5 rounded-full">
-                          {item === 'Glass' ? 'Kg' : 'Nos'}
+                          {getItemUnit(item, 'sales')}
                         </span>
                       </div>
                     </div>
@@ -679,7 +678,7 @@ export function Stock() {
                           {formatQuantity(qty)}
                         </h3>
                         <span className="text-xs font-medium text-purple-700 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-full">
-                          {item === 'Glass' ? 'Kg' : 'Nos'}
+                          {getItemUnit(item, 'sales')}
                         </span>
                       </div>
                     </div>

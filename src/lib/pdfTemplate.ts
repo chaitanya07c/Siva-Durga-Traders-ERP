@@ -1,13 +1,13 @@
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { toast } from "sonner"
-import { formatDate } from "./utils"
+import { formatDate, getItemUnit } from "./utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
 export const formatQuantity = (name: string, quantity: number) => {
-  const WEIGHT_ITEMS = ["Glass", "White Glass", "Colour Glass", "Atta", "Plastic", "Plastic Cover", "Iron"]
-  return WEIGHT_ITEMS.includes(name) ? `${quantity} Kg` : `${quantity}`
+  const unit = getItemUnit(name, 'sales')
+  return unit === 'Kg' ? `${quantity} Kg` : `${quantity}`
 }
 
 export type PDFItem = { name: string, quantity: number, rate: number, total: number }
