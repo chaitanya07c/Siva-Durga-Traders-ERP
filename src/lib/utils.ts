@@ -210,26 +210,51 @@ export function isBeerBottleItem(itemName: string, category?: string): boolean {
   return beerKeywords.some(kw => nameLower.includes(kw))
 }
 
+export const DEFAULT_PURCHASE_UNITS: Record<string, string> = {
+  "Beer": "Nos",
+  "L.C.'s": "Nos",
+  "Full's": "Nos",
+  "Atta": "Kg",
+  "Plastic": "Kg",
+  "Nibe Box": "Nos",
+  "Beer Box": "Nos",
+  "Glass": "Nos"
+}
+
+export const STANDARD_UNIT_OPTIONS = ["Nos", "Kg", "Litres", "Box", "Packet", "Ton"]
+
 /**
- * Returns unit of measurement ('Kg' or 'Nos') for a given item name.
- * Purchasing Stock: Atta, Plastic, Glass, Plastic Cover are 'Kg'; all others are 'Nos'.
- * Sales Stock: Beer Bottle category items are 'Nos'. ALL OTHER Sales items are 'Kg'!
+ * Returns unit of measurement (e.g. 'Nos', 'Kg', 'Litres', 'Box', 'Packet', 'Ton') for a given item.
+ * Supports dynamic lookup from materials list, shop_units object, or fallback to default mappings / 'Nos'.
  */
-export function getItemUnit(itemName: string, context: 'purchasing' | 'sales' = 'sales', category?: string): 'Kg' | 'Nos' {
+export function getItemUnit(
+  itemName: string,
+  context: 'purchasing' | 'sales' = 'sales',
+  categoryOrMaterials?: string | any[] | Record<string, string> | null,
+  explicitUnit?: string | null
+): string {
+  if (explicitUnit && explicitUnit.trim()) {
+    return explicitUnit.trim()
+  }
   if (!itemName) return 'Nos'
   const name = itemName.trim()
 
   if (context === 'purchasing') {
-    const purchasingKgItems = ['Atta', 'Plastic', 'Glass', 'Plastic Cover']
-    return purchasingKgItems.some(k => k.toLowerCase() === name.toLowerCase()) ? 'Kg' : 'Nos'
+    if (typeof categoryOrMaterials === 'object' && categoryOrMaterials !== null && !Array.isArray(categoryOrMaterials)) {
+      const shopUnits = categoryOrMaterials as Record<string, string>
+      if (shopUnits[name]) return shopUnits[name]
+    }
+    return DEFAULT_PURCHASE_UNITS[name] || 'Nos'
   }
 
-  // Sales context rule:
-  // ✅ Beer Bottle category / brands -> Nos
-  // ✅ All remaining Sales Stock items -> Kg
-  if (isBeerBottleItem(name, category)) {
-    return 'Nos'
+  // Sales context
+  if (Array.isArray(categoryOrMaterials)) {
+    const mat = categoryOrMaterials.find(
+      (m: any) => m.name && m.name.toLowerCase() === name.toLowerCase()
+    )
+    if (mat && mat.unit) return mat.unit
   }
-  return 'Kg'
+
+  return 'Nos'
 }
 

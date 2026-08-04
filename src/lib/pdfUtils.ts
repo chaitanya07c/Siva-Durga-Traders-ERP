@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase"
 import type { Shop } from "@/types/database"
 import { toast } from "sonner"
-import { formatDate } from "./utils"
+import { formatDate, getItemUnit } from "./utils"
 
 import { formatQuantity, generateProfessionalPDF, type PDFDocumentData } from "./pdfTemplate"
 export { formatQuantity }
@@ -53,10 +53,12 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
     const itemsForBill = allItems?.filter(i => i.purchase_id === fb.id) || []
     const formattedItems = itemsForBill.map(i => {
       const matName = lang === 'te' && i.materials?.name_te ? i.materials.name_te : ((i.materials as any)?.name || 'Unknown')
+      const shopObj = (Array.isArray(fb.shops) ? fb.shops[0] : fb.shops) as Shop
       return {
         id: i.id,
         name: i.item_name || matName,
         quantity: i.quantity,
+        unit: i.unit || getItemUnit(i.item_name || matName, 'purchasing', shopObj?.shop_units),
         rate: i.rate,
         total: i.total
       }
@@ -207,9 +209,10 @@ export const generateCombinedPDF = async (
           `Date: ${formatDate(bill.date)}`
         ]
 
-        const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map(i => ({
+        const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map((i: any) => ({
           name: i.name,
           quantity: i.quantity,
+          unit: i.unit || getItemUnit(i.name, 'purchasing', currentShop?.shop_units),
           rate: i.rate,
           total: i.total
         }))
@@ -453,9 +456,11 @@ export const generateCombinedGroupPDF = async (
         const itemsForBill = allItems?.filter(i => i.purchase_id === fb.id) || []
         const formattedItems = itemsForBill.map(i => {
           const matName = lang === 'te' && i.materials?.name_te ? i.materials.name_te : ((i.materials as any)?.name || 'Unknown')
+          const shopObj = ((Array.isArray(fb.shops) ? fb.shops[0] : fb.shops) as Shop) || targetShop
           return {
             name: i.item_name || matName,
             quantity: i.quantity,
+            unit: i.unit || getItemUnit(i.item_name || matName, 'purchasing', shopObj?.shop_units),
             rate: i.rate,
             total: i.total
           }
@@ -529,9 +534,10 @@ export const generateCombinedGroupPDF = async (
           `Date: ${formatDate(bill.date)}`
         ]
 
-        const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map(i => ({
+        const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map((i: any) => ({
           name: i.name,
           quantity: i.quantity,
+          unit: i.unit || getItemUnit(i.name, 'purchasing', bill.shop?.shop_units),
           rate: i.rate,
           total: i.total
         }))

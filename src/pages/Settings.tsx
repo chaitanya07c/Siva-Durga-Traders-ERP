@@ -26,6 +26,7 @@ export function Settings() {
   const [formNameTe, setFormNameTe] = useState("")
   const [formCategoryTe, setFormCategoryTe] = useState("")
   const [formDefaultCost, setFormDefaultCost] = useState("")
+  const [formUnit, setFormUnit] = useState("Nos")
 
   // Recycle Bin State
   const [recycleBinItems, setRecycleBinItems] = useState<RecycleBinItem[]>([])
@@ -115,7 +116,8 @@ export function Settings() {
         name_te: formNameTe,
         category: formCategory,
         category_te: formCategoryTe,
-        default_cost: cost
+        default_cost: cost,
+        unit: formUnit.trim() || "Nos"
       }
       if (editingItem) {
         await supabase.from('materials').update(payload).eq('id', editingItem.id)
@@ -162,6 +164,7 @@ export function Settings() {
       setFormCategory(item.category)
       setFormCategoryTe(item.category_te || "")
       setFormDefaultCost(item.default_cost !== undefined && item.default_cost !== null ? String(item.default_cost) : "")
+      setFormUnit(item.unit || "Nos")
     } else {
       setEditingItem(null)
       setFormName("")
@@ -169,6 +172,7 @@ export function Settings() {
       setFormCategory("")
       setFormCategoryTe("")
       setFormDefaultCost("")
+      setFormUnit("Nos")
     }
     setIsModalOpen(true)
   }
@@ -302,6 +306,7 @@ export function Settings() {
                     <tr>
                       <th className="px-4 py-3">{t("category", lang)}</th>
                       <th className="px-4 py-3">{t("name", lang)}</th>
+                      <th className="px-4 py-3 text-center">{t("unit", lang)}</th>
                       <th className="px-4 py-3 text-right">{lang === 'te' ? "డిఫాల్ట్ ధర (₹)" : "Default Cost (₹)"}</th>
                       <th className="px-4 py-3 text-right">{t("actions", lang)}</th>
                     </tr>
@@ -311,6 +316,11 @@ export function Settings() {
                       <tr key={m.id} className="hover:bg-muted/30">
                         <td className="px-4 py-3 font-medium text-muted-foreground">{lang === 'te' && m.category_te ? m.category_te : m.category}</td>
                         <td className="px-4 py-3 font-semibold">{lang === 'te' && m.name_te ? m.name_te : m.name}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="bg-muted px-2.5 py-1 rounded-full text-xs font-semibold text-foreground border">
+                            {m.unit || "Nos"}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 text-right font-semibold">₹{m.default_cost !== undefined && m.default_cost !== null ? Number(m.default_cost).toFixed(2) : "0.00"}</td>
                         <td className="px-4 py-3 text-right">
                           <button onClick={() => openModal(m)} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded mr-1"><Edit2 className="w-4 h-4" /></button>
@@ -319,7 +329,7 @@ export function Settings() {
                       </tr>
                     ))}
                     {filteredMaterials.length === 0 && (
-                      <tr><td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">No items found.</td></tr>
+                      <tr><td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">No items found.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -550,6 +560,26 @@ export function Settings() {
                   onChange={e => setFormCategoryTe(e.target.value)}
                   placeholder="ఉదా. బీర్ బాటిల్స్"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">{t("unit", lang)} *</label>
+                <input 
+                  type="text" 
+                  className="w-full border p-2 rounded bg-background font-medium text-sm"
+                  value={formUnit}
+                  onChange={e => setFormUnit(e.target.value)}
+                  placeholder="e.g. Nos, Kg, Litres, Box, Packet, Ton"
+                  list="unitsList"
+                  required
+                />
+                <datalist id="unitsList">
+                  <option value="Nos" />
+                  <option value="Kg" />
+                  <option value="Litres" />
+                  <option value="Box" />
+                  <option value="Packet" />
+                  <option value="Ton" />
+                </datalist>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">{lang === 'te' ? "డిఫాల్ట్ ధర (₹) *" : "Default Cost (₹) *"}</label>

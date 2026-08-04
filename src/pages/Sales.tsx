@@ -5,12 +5,12 @@ import { Save, Banknote, List, ChevronDown, Plus, Edit2, Trash2, Search, X, Prin
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { formatVehicleNumber, isValidVehicleNumber, isValidDriverName, isValidDriverPhone } from "@/lib/utils"
+import { formatVehicleNumber, isValidVehicleNumber, isValidDriverName, isValidDriverPhone, getItemUnit } from "@/lib/utils"
 import { generateSalesCombinedPDF, shareSalesWhatsApp } from "@/lib/salesPdfUtils"
 import type { GroupedSaleSession } from "@/lib/salesPdfUtils"
 import { addToRecycleBin } from "@/lib/recycleBin"
 
-type SalesItem = { name: string, quantity: number, rate: number, total: number }
+type SalesItem = { name: string, quantity: number, rate: number, total: number, unit?: string }
 
 const formatInr = (value: number) => {
   return new Intl.NumberFormat('en-IN').format(value)
@@ -151,7 +151,8 @@ export function Sales() {
     }
     const mat = availableMaterials.find(m => m.name === itemName)
     const defaultRate = mat && mat.default_cost !== undefined && mat.default_cost !== null ? Number(mat.default_cost) : 0
-    setSelectedItems(prev => [...prev, { name: itemName, quantity: 0, rate: defaultRate, total: 0 }])
+    const unit = mat?.unit || getItemUnit(itemName, 'sales', availableMaterials)
+    setSelectedItems(prev => [...prev, { name: itemName, quantity: 0, rate: defaultRate, total: 0, unit }])
     setIsItemModalOpen(false)
     setItemSearch("")
   }
@@ -191,7 +192,10 @@ export function Sales() {
 
     setLoading(true)
     try {
-      const itemsToSave = selectedItems.filter(i => i.quantity > 0)
+      const itemsToSave = selectedItems.filter(i => i.quantity > 0).map(i => ({
+        ...i,
+        unit: i.unit || getItemUnit(i.name, 'sales', availableMaterials)
+      }))
       const itemsJson = itemsToSave.reduce((acc, curr) => ({ ...acc, [curr.name]: curr }), {})
 
       const invoiceNumber = `INV-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`;
@@ -429,7 +433,12 @@ export function Sales() {
                     <tr key={index} className="hover:bg-muted/10">
                       <td className="px-4 py-3 font-medium">{item.name}</td>
                       <td className="px-4 py-2">
-                        <input type="number" className="w-full border p-1.5 rounded text-sm" value={item.quantity || ""} onChange={e => updateItem(index, 'quantity', Number(e.target.value))} disabled={!!savedSaleId} placeholder="0" />
+                        <div className="flex items-center gap-1.5">
+                          <input type="number" className="w-full border p-1.5 rounded text-sm" value={item.quantity || ""} onChange={e => updateItem(index, 'quantity', Number(e.target.value))} disabled={!!savedSaleId} placeholder="0" />
+                          <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-1 rounded shrink-0 border">
+                            {item.unit || getItemUnit(item.name, 'sales', availableMaterials)}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-2">
                         <input type="number" className="w-full border p-1.5 rounded text-sm" value={item.rate || ""} onChange={e => updateItem(index, 'rate', Number(e.target.value))} disabled={!!savedSaleId} placeholder="0.00" />
@@ -582,7 +591,10 @@ export function Sales() {
                         onClick={() => handleAddItem(item.name)}
                         className="text-left p-3 rounded border bg-card hover:border-primary hover:shadow-sm transition-all flex justify-between items-center"
                       >
-                        <span className="font-medium text-sm">{item.name}</span>
+                        <span className="font-medium text-sm flex items-center gap-2">
+                          {item.name}
+                          <span className="bg-muted px-2 py-0.5 rounded text-xs text-muted-foreground font-medium border">{item.unit || "Nos"}</span>
+                        </span>
                         <Plus className="w-4 h-4 text-muted-foreground" />
                       </button>
                     ))}

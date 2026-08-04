@@ -187,6 +187,7 @@ export function Purchasing() {
 
       const { data: mats } = await supabase.from('materials').select('id, name, name_te')
       
+      const selectedShopObj = shops.find(s => s.id === selectedShopId)
       const purchaseItems = validItems.map(item => {
         const mat = mats?.find(m => m.name.toLowerCase() === item.name.toLowerCase())
         return {
@@ -194,7 +195,7 @@ export function Purchasing() {
           material_id: mat?.id || null,
           item_name: item.name,
           quantity: item.quantity,
-          unit: getItemUnit(item.name, 'purchasing'),
+          unit: getItemUnit(item.name, 'purchasing', selectedShopObj?.shop_units),
           rate: item.rate,
           total: item.total
         }
@@ -384,14 +385,19 @@ export function Purchasing() {
                             </div>
                           </td>
                           <td className="px-3 py-2">
-                            <input 
-                              type="number" 
-                              className="w-full border p-2 rounded text-sm bg-background font-medium focus:outline-none focus:ring-2 focus:ring-primary/50" 
-                              value={item.quantity || ""} 
-                              onChange={e => updateItem(originalIndex, 'quantity', Number(e.target.value))} 
-                              disabled={!!savedBillId} 
-                              placeholder="0" 
-                            />
+                            <div className="flex items-center gap-1.5">
+                              <input 
+                                type="number" 
+                                className="w-full border p-2 rounded text-sm bg-background font-medium focus:outline-none focus:ring-2 focus:ring-primary/50" 
+                                value={item.quantity || ""} 
+                                onChange={e => updateItem(originalIndex, 'quantity', Number(e.target.value))} 
+                                disabled={!!savedBillId} 
+                                placeholder="0" 
+                              />
+                              <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-1 rounded shrink-0 border">
+                                {getItemUnit(item.name, 'purchasing', shops.find(s => s.id === selectedShopId)?.shop_units)}
+                              </span>
+                            </div>
                           </td>
                           <td className="px-3 py-2">
                             {activeTab === 'Iron' && item.name === 'Beer' ? (

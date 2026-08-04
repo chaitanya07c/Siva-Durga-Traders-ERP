@@ -61,6 +61,10 @@ export function Stock() {
   const [salesSoldItemNames, setSalesSoldItemNames] = useState<string[]>([])
   const [hasNoSalesPeriodData, setHasNoSalesPeriodData] = useState(false)
 
+  // Dynamic Units State
+  const [materialsList, setMaterialsList] = useState<any[]>([])
+  const [shopUnitsMap, setShopUnitsMap] = useState<Record<string, string>>({})
+
   useEffect(() => {
     if (activeTab === "Purchasing") {
       fetchPurchasingStockData()
@@ -86,6 +90,15 @@ export function Stock() {
     setLoading(true)
 
     try {
+      const { data: shopsData } = await supabase.from('shops').select('shop_units')
+      const combinedUnits: Record<string, string> = {}
+      shopsData?.forEach((s: any) => {
+        if (s.shop_units) {
+          Object.assign(combinedUnits, s.shop_units)
+        }
+      })
+      setShopUnitsMap(combinedUnits)
+
       const { data: allPurchaseItems } = await supabase
         .from('purchase_items')
         .select('item_name, quantity, purchase_id, purchases(date), materials(name)')
@@ -150,6 +163,9 @@ export function Stock() {
     setLoading(true)
 
     try {
+      const { data: matsData } = await supabase.from('materials').select('*')
+      if (matsData) setMaterialsList(matsData)
+
       const { data: allSales } = await supabase
         .from('sales')
         .select('date, items')
@@ -263,7 +279,7 @@ export function Stock() {
       const tableRows = itemNames.map(item => [
         getItemDisplayName(item, 'en'),
         formatQuantity(stockData[item] || 0),
-        getItemUnit(item, activeTab === 'Purchasing' ? 'purchasing' : 'sales')
+        getItemUnit(item, activeTab === 'Purchasing' ? 'purchasing' : 'sales', activeTab === 'Purchasing' ? shopUnitsMap : materialsList)
       ])
 
       if (tableRows.length === 0) {
@@ -355,7 +371,7 @@ export function Stock() {
         "Section": `Period ${activeTab} Stock`,
         "Item Name": item,
         [qtyColHeader]: rangeData[item] || 0,
-        "Unit": getItemUnit(item, activeTab === 'Purchasing' ? 'purchasing' : 'sales')
+        "Unit": getItemUnit(item, activeTab === 'Purchasing' ? 'purchasing' : 'sales', activeTab === 'Purchasing' ? shopUnitsMap : materialsList)
       })
     })
 
@@ -367,7 +383,7 @@ export function Stock() {
         "Section": `Overall ${activeTab} Stock`,
         "Item Name": item,
         [qtyColHeader]: overallData[item] || 0,
-        "Unit": getItemUnit(item, activeTab === 'Purchasing' ? 'purchasing' : 'sales')
+        "Unit": getItemUnit(item, activeTab === 'Purchasing' ? 'purchasing' : 'sales', activeTab === 'Purchasing' ? shopUnitsMap : materialsList)
       })
     })
 
@@ -532,7 +548,7 @@ export function Stock() {
                         {formatQuantity(qty)}
                       </h3>
                       <span className="text-xs font-medium text-slate-500 bg-muted px-2 py-0.5 rounded-full">
-                        {getItemUnit(item, 'purchasing')}
+                        {getItemUnit(item, 'purchasing', shopUnitsMap)}
                       </span>
                     </div>
                   </div>
@@ -574,7 +590,7 @@ export function Stock() {
                         {formatQuantity(qty)}
                       </h3>
                       <span className="text-xs font-medium text-purple-700 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-full">
-                        {getItemUnit(item, 'purchasing')}
+                        {getItemUnit(item, 'purchasing', shopUnitsMap)}
                       </span>
                     </div>
                   </div>
@@ -627,7 +643,7 @@ export function Stock() {
                           {formatQuantity(qty)}
                         </h3>
                         <span className="text-xs font-medium text-slate-500 bg-muted px-2 py-0.5 rounded-full">
-                          {getItemUnit(item, 'sales')}
+                          {getItemUnit(item, 'sales', materialsList)}
                         </span>
                       </div>
                     </div>
@@ -678,7 +694,7 @@ export function Stock() {
                           {formatQuantity(qty)}
                         </h3>
                         <span className="text-xs font-medium text-purple-700 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-full">
-                          {getItemUnit(item, 'sales')}
+                          {getItemUnit(item, 'sales', materialsList)}
                         </span>
                       </div>
                     </div>

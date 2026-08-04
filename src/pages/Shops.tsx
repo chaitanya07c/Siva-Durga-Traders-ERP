@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import { addToRecycleBin } from "@/lib/recycleBin"
+import { DEFAULT_PURCHASE_UNITS, STANDARD_UNIT_OPTIONS } from "@/lib/utils"
 
 const WINE_FIXED_ITEMS = ["Beer", "L.C.'s", "Full's", "Atta", "Plastic", "Nibe Box", "Beer Box"]
 const IRON_FIXED_ITEMS = ["Glass", "Beer"]
@@ -53,7 +54,7 @@ export function Shops() {
   const [shopHistory, setShopHistory] = useState<any[]>([])
   
   const [formData, setFormData] = useState<Partial<Shop>>({
-    name: "", name_te: "", type: "Wine", landmark: "", landmark_te: "", contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", address: "", address_te: "", marked_for_loading: false, shop_rates: {}
+    name: "", name_te: "", type: "Wine", landmark: "", landmark_te: "", contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", address: "", address_te: "", marked_for_loading: false, shop_rates: {}, shop_units: {}
   })
 
   useEffect(() => {
@@ -137,13 +138,23 @@ export function Shops() {
 
   const openEdit = (shop: Shop) => {
     setEditingShop(shop)
-    setFormData({ ...shop, shop_rates: shop.shop_rates || {} })
+    const initialUnits: Record<string, string> = { ...(shop.shop_units || {}) }
+    WINE_FIXED_ITEMS.concat(IRON_FIXED_ITEMS).forEach(item => {
+      if (!initialUnits[item]) {
+        initialUnits[item] = DEFAULT_PURCHASE_UNITS[item] || "Nos"
+      }
+    })
+    setFormData({ ...shop, shop_rates: shop.shop_rates || {}, shop_units: initialUnits })
     setIsModalOpen(true)
   }
 
   const openCreate = () => {
     setEditingShop(null)
-    setFormData({ name: "", name_te: "", type: typeFilter, landmark: "", landmark_te: "", contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", address: "", address_te: "", marked_for_loading: false, shop_rates: {} })
+    const initialUnits: Record<string, string> = {}
+    WINE_FIXED_ITEMS.concat(IRON_FIXED_ITEMS).forEach(item => {
+      initialUnits[item] = DEFAULT_PURCHASE_UNITS[item] || "Nos"
+    })
+    setFormData({ name: "", name_te: "", type: typeFilter, landmark: "", landmark_te: "", contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", address: "", address_te: "", marked_for_loading: false, shop_rates: {}, shop_units: initialUnits })
     setIsModalOpen(true)
   }
 
@@ -183,6 +194,14 @@ export function Shops() {
         newRates[item] = Number(value)
       }
       return { ...prev, shop_rates: newRates }
+    })
+  }
+
+  const handleUnitChange = (item: string, value: string) => {
+    setFormData(prev => {
+      const newUnits = { ...(prev.shop_units || {}) }
+      newUnits[item] = value
+      return { ...prev, shop_units: newUnits }
     })
   }
 
@@ -371,25 +390,48 @@ export function Shops() {
                 </div>
               </div>
 
-              {/* Shop Rates Section */}
+              {/* Shop Rates & Quantity Type Section */}
               {getActiveItems().length > 0 && (
                 <div className="mt-6">
-                  <h3 className="text-sm font-bold border-b pb-2 mb-3">Fixed Item Rates (Required)</h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    {getActiveItems().map(item => (
-                      <div key={item}>
-                        <label className="block text-xs font-medium mb-1 text-muted-foreground">{item}</label>
-                        <input 
-                          type="number" 
-                          step="0.01"
-                          required
-                          className="w-full border p-2 rounded text-sm" 
-                          placeholder="0.00"
-                          value={formData.shop_rates?.[item] !== undefined ? formData.shop_rates[item] : ""} 
-                          onChange={e => handleRateChange(item, e.target.value)}
-                        />
-                      </div>
-                    ))}
+                  <h3 className="text-sm font-bold border-b pb-2 mb-3">Item Rates & Quantity Types</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {getActiveItems().map(item => {
+                      const currentUnit = formData.shop_units?.[item] !== undefined ? formData.shop_units[item] : (DEFAULT_PURCHASE_UNITS[item] || "Nos")
+                      return (
+                        <div key={item} className="p-3 border rounded-lg bg-muted/20 space-y-2">
+                          <label className="block text-xs font-bold text-slate-800">{item}</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[11px] font-medium text-muted-foreground mb-1">Cost (₹) *</label>
+                              <input 
+                                type="number" 
+                                step="0.01"
+                                required
+                                className="w-full border p-2 rounded text-sm bg-background" 
+                                placeholder="0.00"
+                                value={formData.shop_rates?.[item] !== undefined ? formData.shop_rates[item] : ""} 
+                                onChange={e => handleRateChange(item, e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-muted-foreground mb-1">Quantity Type (Unit) *</label>
+                              <input 
+                                type="text"
+                                required
+                                className="w-full border p-2 rounded text-sm bg-background font-medium" 
+                                placeholder="Nos, Kg, Litres..."
+                                value={currentUnit} 
+                                onChange={e => handleUnitChange(item, e.target.value)}
+                                list={`unitsList-${item}`}
+                              />
+                              <datalist id={`unitsList-${item}`}>
+                                {STANDARD_UNIT_OPTIONS.map(opt => <option key={opt} value={opt} />)}
+                              </datalist>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}

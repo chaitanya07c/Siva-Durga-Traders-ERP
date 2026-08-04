@@ -16,6 +16,7 @@ export type Shop = {
   marked_for_loading: boolean
   marked_for_combined_bill: boolean
   shop_rates: Record<string, number>
+  shop_units?: Record<string, string>
   created_at: string
 }
 
@@ -26,6 +27,7 @@ export type Material = {
   category: string
   category_te?: string | null
   default_cost: number
+  unit?: string
   created_at: string
 }
 

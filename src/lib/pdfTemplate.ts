@@ -5,12 +5,12 @@ import { formatDate, getItemUnit } from "./utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
-export const formatQuantity = (name: string, quantity: number) => {
-  const unit = getItemUnit(name, 'sales')
-  return unit === 'Kg' ? `${quantity} Kg` : `${quantity}`
+export const formatQuantity = (name: string, quantity: number, unit?: string) => {
+  const u = (unit && unit.trim()) ? unit.trim() : getItemUnit(name)
+  return `${quantity} ${u}`
 }
 
-export type PDFItem = { name: string, quantity: number, rate: number, total: number }
+export type PDFItem = { name: string, quantity: number, rate: number, total: number, unit?: string }
 
 export type PDFBillData = {
   metadataLeft: string[]
@@ -210,7 +210,7 @@ export const generateProfessionalPDF = async (
 
         doc.text(String(i + 1), 17, rowY + 5)
         doc.text(item.name, 27, rowY + 5)
-        doc.text(formatQuantity(item.name, item.quantity), 120, rowY + 5, { align: "right" })
+        doc.text(formatQuantity(item.name, item.quantity, item.unit), 120, rowY + 5, { align: "right" })
         doc.text(`Rs ${formatInr(item.rate || 0)}`, 155, rowY + 5, { align: "right" })
         doc.text(`Rs ${formatInr(item.total || 0)}`, 193, rowY + 5, { align: "right" })
       })

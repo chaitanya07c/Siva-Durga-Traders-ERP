@@ -708,7 +708,7 @@ export function SalesPayments() {
                               <tr key={i}>
                                 <td className="py-2 text-muted-foreground">{i + 1}</td>
                                 <td className="py-2">{item.name}</td>
-                                <td className="py-2 text-center">{formatQuantity(item.name, item.quantity)}</td>
+                                <td className="py-2 text-center">{formatQuantity(item.name, item.quantity, (item as any).unit)}</td>
                                 <td className="py-2 text-right">₹{item.rate}</td>
                                 <td className="py-2 text-right font-medium">₹{formatInr(item.total)}</td>
                               </tr>

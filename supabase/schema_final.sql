@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS public.shops (
     marked_for_loading BOOLEAN DEFAULT false,
     marked_for_combined_bill BOOLEAN NOT NULL DEFAULT false,
     shop_rates JSONB NOT NULL DEFAULT '{}'::jsonb,
+    shop_units JSONB NOT NULL DEFAULT '{}'::jsonb,
     status TEXT DEFAULT 'Active',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS public.materials (
     category TEXT NOT NULL,
     category_te TEXT,
     default_cost DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+    unit TEXT NOT NULL DEFAULT 'Nos',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

@@ -26,7 +26,7 @@ export type SalesBillBreakdown = {
   driverName?: string | null
   driverPhone?: string | null
   date: string
-  items: { name: string, quantity: number, rate: number, total: number }[]
+  items: { name: string, quantity: number, rate: number, total: number, unit?: string }[]
   grandTotal: number
   advance?: number
   remarks?: string | null
@@ -47,6 +47,7 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
     const formattedItems = Object.values(itemsJson).map((i: any) => ({
       name: lang === 'te' && i.name_te ? i.name_te : i.name,
       quantity: i.quantity,
+      unit: i.unit,
       rate: i.rate,
       total: i.total
     }))
@@ -167,9 +168,10 @@ export const generateSalesCombinedPDF = async (
           `Date: ${formatDate(bill.date)}`
         ]
 
-        const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map(i => ({
+        const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map((i: any) => ({
           name: i.name,
           quantity: i.quantity,
+          unit: i.unit,
           rate: i.rate,
           total: i.total
         }))
