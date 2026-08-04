@@ -224,8 +224,23 @@ export const DEFAULT_PURCHASE_UNITS: Record<string, string> = {
 export const STANDARD_UNIT_OPTIONS = ["Nos", "Kg", "Litres", "Box", "Packet", "Ton"]
 
 /**
+ * Returns default Quantity Type unit for a Sales category.
+ * Only "Beer Bottles" category defaults to "Nos". All other categories default to "Kg".
+ */
+export function getDefaultSalesUnit(category?: string, name?: string): string {
+  const catLower = (category || '').trim().toLowerCase()
+  if (catLower === 'beer bottles' || catLower.includes('beer bottle')) {
+    return 'Nos'
+  }
+  if (name && isBeerBottleItem(name, category)) {
+    return 'Nos'
+  }
+  return 'Kg'
+}
+
+/**
  * Returns unit of measurement (e.g. 'Nos', 'Kg', 'Litres', 'Box', 'Packet', 'Ton') for a given item.
- * Supports dynamic lookup from materials list, shop_units object, or fallback to default mappings / 'Nos'.
+ * Supports dynamic lookup from materials list, shop_units object, or fallback to category defaults.
  */
 export function getItemUnit(
   itemName: string,
@@ -236,7 +251,7 @@ export function getItemUnit(
   if (explicitUnit && explicitUnit.trim()) {
     return explicitUnit.trim()
   }
-  if (!itemName) return 'Nos'
+  if (!itemName) return 'Kg'
   const name = itemName.trim()
 
   if (context === 'purchasing') {
@@ -253,8 +268,10 @@ export function getItemUnit(
       (m: any) => m.name && m.name.toLowerCase() === name.toLowerCase()
     )
     if (mat && mat.unit) return mat.unit
+    if (mat && mat.category) return getDefaultSalesUnit(mat.category, name)
   }
 
-  return 'Nos'
+  const category = typeof categoryOrMaterials === 'string' ? categoryOrMaterials : undefined
+  return getDefaultSalesUnit(category, name)
 }
 

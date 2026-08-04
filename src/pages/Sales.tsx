@@ -593,7 +593,7 @@ export function Sales() {
                       >
                         <span className="font-medium text-sm flex items-center gap-2">
                           {item.name}
-                          <span className="bg-muted px-2 py-0.5 rounded text-xs text-muted-foreground font-medium border">{item.unit || "Nos"}</span>
+                          <span className="bg-muted px-2 py-0.5 rounded text-xs text-muted-foreground font-medium border">{item.unit || getItemUnit(item.name, 'sales', availableMaterials)}</span>
                         </span>
                         <Plus className="w-4 h-4 text-muted-foreground" />
                       </button>

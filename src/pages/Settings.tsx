@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import { getRecycleBinItems, restoreFromRecycleBin, deletePermanentlyFromRecycleBin, addToRecycleBin, type RecycleBinItem } from "@/lib/recycleBin"
-import { formatDate } from "@/lib/utils"
+import { formatDate, getDefaultSalesUnit } from "@/lib/utils"
 
 const formatInr = (val: number) => new Intl.NumberFormat('en-IN').format(val)
 
@@ -164,7 +164,7 @@ export function Settings() {
       setFormCategory(item.category)
       setFormCategoryTe(item.category_te || "")
       setFormDefaultCost(item.default_cost !== undefined && item.default_cost !== null ? String(item.default_cost) : "")
-      setFormUnit(item.unit || "Nos")
+      setFormUnit(item.unit || getDefaultSalesUnit(item.category, item.name))
     } else {
       setEditingItem(null)
       setFormName("")
@@ -172,7 +172,7 @@ export function Settings() {
       setFormCategory("")
       setFormCategoryTe("")
       setFormDefaultCost("")
-      setFormUnit("Nos")
+      setFormUnit("Kg")
     }
     setIsModalOpen(true)
   }
@@ -318,7 +318,7 @@ export function Settings() {
                         <td className="px-4 py-3 font-semibold">{lang === 'te' && m.name_te ? m.name_te : m.name}</td>
                         <td className="px-4 py-3 text-center">
                           <span className="bg-muted px-2.5 py-1 rounded-full text-xs font-semibold text-foreground border">
-                            {m.unit || "Nos"}
+                            {m.unit || getDefaultSalesUnit(m.category, m.name)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right font-semibold">₹{m.default_cost !== undefined && m.default_cost !== null ? Number(m.default_cost).toFixed(2) : "0.00"}</td>
@@ -542,7 +542,13 @@ export function Settings() {
                   type="text" 
                   className="w-full border p-2 rounded"
                   value={formCategory}
-                  onChange={e => setFormCategory(e.target.value)}
+                  onChange={e => {
+                    const val = e.target.value
+                    setFormCategory(val)
+                    if (!editingItem) {
+                      setFormUnit(getDefaultSalesUnit(val, formName))
+                    }
+                  }}
                   placeholder="e.g. Beer Bottles"
                   list="categoriesList"
                   required
