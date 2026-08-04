@@ -36,6 +36,61 @@ const getItemDisplayName = (name: string, lang: 'en' | 'te') => {
   return name
 }
 
+const getGroupedSalesItems = (itemNames: string[], materialsList: any[], lang: 'en' | 'te') => {
+  const matMap = new Map<string, any>()
+  materialsList.forEach(m => {
+    if (m.name) {
+      matMap.set(m.name, m)
+    }
+  })
+
+  // Collect ordered categories from materialsList
+  const categoryOrder: { key: string; name: string; name_te?: string }[] = []
+  const categoryKeys = new Set<string>()
+
+  materialsList.forEach(m => {
+    const catKey = m.category || "Other"
+    if (!categoryKeys.has(catKey)) {
+      categoryKeys.add(catKey)
+      categoryOrder.push({
+        key: catKey,
+        name: m.category || "Other",
+        name_te: m.category_te || ""
+      })
+    }
+  })
+
+  // Group items
+  const groupedMap = new Map<string, string[]>()
+  categoryOrder.forEach(c => groupedMap.set(c.key, []))
+
+  itemNames.forEach(itemName => {
+    const mat = matMap.get(itemName)
+    const catKey = mat?.category || "Other"
+    if (!groupedMap.has(catKey)) {
+      groupedMap.set(catKey, [])
+      categoryOrder.push({
+        key: catKey,
+        name: catKey,
+        name_te: mat?.category_te || ""
+      })
+    }
+    groupedMap.get(catKey)!.push(itemName)
+  })
+
+  return categoryOrder
+    .map(c => {
+      const items = groupedMap.get(c.key) || []
+      const displayName = (lang === 'te' && c.name_te) ? c.name_te : c.name
+      return {
+        key: c.key,
+        displayName,
+        items
+      }
+    })
+    .filter(group => group.items.length > 0)
+}
+
 export function Stock() {
   const { lang } = useOutletContext<{ lang: "en" | "te" }>()
 
@@ -603,7 +658,7 @@ export function Stock() {
         /* ==================== SALES STOCK TAB ==================== */
         <>
           {/* DATE RANGE SALES STOCK SECTION */}
-          <div className="space-y-4">
+          <div className="space-y-6">
             <div className="flex items-center space-x-2 border-b pb-2">
               <TrendingUp className="w-5 h-5 text-primary" />
               <h2 className="text-lg font-bold text-foreground">
@@ -622,39 +677,54 @@ export function Stock() {
                 </span>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                {salesSoldItemNames.map((item) => {
-                  const qty = salesRangeStock[item] || 0
-                  return (
-                    <div
-                      key={`sale-range-${item}`}
-                      className="bg-card p-5 rounded-2xl border shadow-sm flex flex-col justify-between hover:border-primary/50 transition-colors"
-                    >
-                      <div>
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          {getItemDisplayName(item, lang)}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {t("soldQuantity", lang)}
-                        </p>
-                      </div>
-                      <div className="mt-4 flex items-baseline justify-between">
-                        <h3 className="text-2xl font-extrabold text-foreground">
-                          {formatQuantity(qty)}
-                        </h3>
-                        <span className="text-xs font-medium text-slate-500 bg-muted px-2 py-0.5 rounded-full">
-                          {getItemUnit(item, 'sales', materialsList)}
-                        </span>
-                      </div>
+              <div className="space-y-6">
+                {getGroupedSalesItems(salesSoldItemNames, materialsList, lang).map((group) => (
+                  <div key={`range-group-${group.key}`} className="space-y-3">
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                        {group.displayName}
+                      </h3>
+                      <span className="text-xs font-semibold text-muted-foreground bg-muted px-2.5 py-0.5 rounded-full border">
+                        {group.items.length} {group.items.length === 1 ? (lang === 'te' ? 'వస్తువు' : 'item') : (lang === 'te' ? 'వస్తువులు' : 'items')}
+                      </span>
                     </div>
-                  )
-                })}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                      {group.items.map((item) => {
+                        const qty = salesRangeStock[item] || 0
+                        return (
+                          <div
+                            key={`sale-range-${item}`}
+                            className="bg-card p-5 rounded-2xl border shadow-sm flex flex-col justify-between hover:border-primary/50 transition-colors"
+                          >
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                {getItemDisplayName(item, lang)}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {t("soldQuantity", lang)}
+                              </p>
+                            </div>
+                            <div className="mt-4 flex items-baseline justify-between">
+                              <h3 className="text-2xl font-extrabold text-foreground">
+                                {formatQuantity(qty)}
+                              </h3>
+                              <span className="text-xs font-medium text-slate-500 bg-muted px-2 py-0.5 rounded-full">
+                                {getItemUnit(item, 'sales', materialsList)}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
           {/* OVERALL SALES STOCK SECTION */}
-          <div className="space-y-4 pt-6">
+          <div className="space-y-6 pt-6">
             <div className="flex items-center space-x-2 border-b pb-2">
               <TrendingUp className="w-5 h-5 text-purple-600" />
               <h2 className="text-lg font-bold text-foreground">
@@ -673,33 +743,48 @@ export function Stock() {
                 </span>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                {salesSoldItemNames.map((item) => {
-                  const qty = salesOverallStock[item] || 0
-                  return (
-                    <div
-                      key={`sale-overall-${item}`}
-                      className="bg-card p-5 rounded-2xl border shadow-sm flex flex-col justify-between hover:border-purple-500/50 transition-colors"
-                    >
-                      <div>
-                        <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
-                          {getItemDisplayName(item, lang)}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {t("soldQuantity", lang)}
-                        </p>
-                      </div>
-                      <div className="mt-4 flex items-baseline justify-between">
-                        <h3 className="text-2xl font-extrabold text-foreground">
-                          {formatQuantity(qty)}
-                        </h3>
-                        <span className="text-xs font-medium text-purple-700 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-full">
-                          {getItemUnit(item, 'sales', materialsList)}
-                        </span>
-                      </div>
+              <div className="space-y-6">
+                {getGroupedSalesItems(salesSoldItemNames, materialsList, lang).map((group) => (
+                  <div key={`overall-group-${group.key}`} className="space-y-3">
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                        {group.displayName}
+                      </h3>
+                      <span className="text-xs font-semibold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 px-2.5 py-0.5 rounded-full border border-purple-200 dark:border-purple-800">
+                        {group.items.length} {group.items.length === 1 ? (lang === 'te' ? 'వస్తువు' : 'item') : (lang === 'te' ? 'వస్తువులు' : 'items')}
+                      </span>
                     </div>
-                  )
-                })}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                      {group.items.map((item) => {
+                        const qty = salesOverallStock[item] || 0
+                        return (
+                          <div
+                            key={`sale-overall-${item}`}
+                            className="bg-card p-5 rounded-2xl border shadow-sm flex flex-col justify-between hover:border-purple-500/50 transition-colors"
+                          >
+                            <div>
+                              <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                                {getItemDisplayName(item, lang)}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {t("soldQuantity", lang)}
+                              </p>
+                            </div>
+                            <div className="mt-4 flex items-baseline justify-between">
+                              <h3 className="text-2xl font-extrabold text-foreground">
+                                {formatQuantity(qty)}
+                              </h3>
+                              <span className="text-xs font-medium text-purple-700 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded-full">
+                                {getItemUnit(item, 'sales', materialsList)}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
