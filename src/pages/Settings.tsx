@@ -379,6 +379,7 @@ export function Settings() {
                         <th className="px-4 py-3 font-semibold">Module</th>
                         <th className="px-4 py-3 font-semibold">Record / Title</th>
                         <th className="px-4 py-3 font-semibold">{t("deletedDate", lang)}</th>
+                        <th className="px-4 py-3 font-semibold">{lang === 'te' ? "ఆటో డిలీట్ తేది" : "Auto Delete On"}</th>
                         <th className="px-4 py-3 font-semibold text-right">{lang === 'te' ? "మొత్తం అమౌంట్" : "Amount"}</th>
                         <th className="px-4 py-3 font-semibold text-center">{t("actions", lang)}</th>
                       </tr>
@@ -404,6 +405,8 @@ export function Settings() {
                           typeLabel === 'Buyer' ? 'bg-indigo-100 text-indigo-700' :
                           'bg-slate-100 text-slate-700'
 
+                        const autoDeleteDate = item.expires_at || new Date(new Date(item.deleted_at).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+
                         return (
                           <tr key={item.id} className="hover:bg-muted/20 transition-colors">
                             <td className="px-4 py-3.5 whitespace-nowrap">
@@ -416,6 +419,9 @@ export function Settings() {
                             </td>
                             <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                               {formatDate(item.deleted_at)} {new Date(item.deleted_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="px-4 py-3 text-xs font-semibold text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                              {formatDate(autoDeleteDate)}
                             </td>
                             <td className="px-4 py-3 text-right font-extrabold text-foreground whitespace-nowrap">
                               {Number(item.amount || 0) > 0 ? `₹${formatInr(item.amount)}` : '-'}

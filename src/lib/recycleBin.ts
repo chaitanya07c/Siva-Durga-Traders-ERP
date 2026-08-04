@@ -10,52 +10,41 @@ export type RecycleBinItem = {
   amount: number
   data: Record<string, any>
   deleted_at: string
-}
-
-const LOCAL_STORAGE_KEY = 'siva_durga_recycle_bin_v1'
-
-const getLocalRecycleBin = (): RecycleBinItem[] => {
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch (e) {
-    console.error("Error reading recycle bin from localStorage:", e)
-    return []
-  }
-}
-
-const setLocalRecycleBin = (items: RecycleBinItem[]) => {
-  try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items))
-  } catch (e) {
-    console.error("Error saving recycle bin to localStorage:", e)
-  }
+  expires_at?: string
 }
 
 export const addToRecycleBin = async (item: RecycleBinItem): Promise<boolean> => {
-  // Always update localStorage as reliable fallback
-  const localItems = getLocalRecycleBin()
-  const updatedLocal = [item, ...localItems.filter(i => i.id !== item.id)]
-  setLocalRecycleBin(updatedLocal)
+  const deletedAt = item.deleted_at || new Date().toISOString()
+  const expiresAt = item.expires_at || new Date(new Date(deletedAt).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
 
-  try {
-    const { error } = await supabase.from('recycle_bin').insert([{
-      id: item.id,
-      type: item.type,
-      item_id: item.item_id,
-      title: item.title,
-      shop_name: item.shop_name || '',
-      bill_number: item.bill_number || '',
-      amount: item.amount || 0,
-      data: item.data,
-      deleted_at: item.deleted_at
-    }])
+  const payload: any = {
+    id: item.id || crypto.randomUUID(),
+    type: item.type,
+    item_id: item.item_id,
+    title: item.title,
+    shop_name: item.shop_name || '',
+    bill_number: item.bill_number || '',
+    amount: Number(item.amount || 0),
+    data: item.data,
+    deleted_at: deletedAt,
+    expires_at: expiresAt
+  }
 
-    if (error) {
-      console.warn("Supabase recycle_bin insert warning (using local fallback):", error.message)
+  const { error } = await supabase.from('recycle_bin').insert([payload])
+
+  if (error) {
+    console.error("Supabase recycle_bin insert error:", error)
+    // If expires_at column is missing on DB, fallback without expires_at
+    if (error.message && error.message.includes('expires_at')) {
+      delete payload.expires_at
+      const { error: retryErr } = await supabase.from('recycle_bin').insert([payload])
+      if (retryErr) {
+        console.error("Retry insert error on recycle_bin:", retryErr)
+        throw retryErr
+      }
+    } else {
+      throw error
     }
-  } catch (e) {
-    console.warn("Supabase recycle_bin error (using local fallback):", e)
   }
 
   return true
@@ -63,40 +52,70 @@ export const addToRecycleBin = async (item: RecycleBinItem): Promise<boolean> =>
 
 export const getRecycleBinItems = async (): Promise<RecycleBinItem[]> => {
   try {
+    const nowIso = new Date().toISOString()
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000
+    const nowMs = Date.now()
+
+    // Delete expired items from database (> 30 days or expires_at <= now)
+    try {
+      await supabase.from('recycle_bin').delete().lte('expires_at', nowIso)
+    } catch (e) {
+      const thirtyDaysAgo = new Date(nowMs - thirtyDaysMs).toISOString()
+      await supabase.from('recycle_bin').delete().lt('deleted_at', thirtyDaysAgo)
+    }
+
     const { data, error } = await supabase
       .from('recycle_bin')
       .select('*')
       .order('deleted_at', { ascending: false })
 
-    if (!error && data && data.length > 0) {
-      return data.map((d: any) => ({
-        id: d.id,
-        type: d.type || 'purchase_bill',
-        item_id: d.item_id,
-        title: d.title || d.shop_name || 'Deleted Item',
-        shop_name: d.shop_name || '',
-        bill_number: d.bill_number || '',
-        amount: Number(d.amount || 0),
-        data: d.data,
-        deleted_at: d.deleted_at
-      }))
+    if (error) {
+      console.error("Supabase recycle_bin select error:", error)
+      return []
     }
-  } catch (e) {
-    console.warn("Supabase recycle_bin select error (using local fallback):", e)
-  }
 
-  return getLocalRecycleBin()
+    return (data || [])
+      .filter((d: any) => {
+        // Client-side retention filter guard: exclude items older than 30 days
+        const delTime = new Date(d.deleted_at || d.created_at || nowIso).getTime()
+        const expTime = d.expires_at ? new Date(d.expires_at).getTime() : (delTime + thirtyDaysMs)
+        return expTime > nowMs && (nowMs - delTime) < thirtyDaysMs
+      })
+      .map((d: any) => {
+        const deletedAt = d.deleted_at || d.created_at || nowIso
+        const expiresAt = d.expires_at || new Date(new Date(deletedAt).getTime() + thirtyDaysMs).toISOString()
+        return {
+          id: d.id,
+          type: d.type || 'purchase_bill',
+          item_id: d.item_id,
+          title: d.title || d.shop_name || 'Deleted Item',
+          shop_name: d.shop_name || '',
+          bill_number: d.bill_number || '',
+          amount: Number(d.amount || 0),
+          data: d.data,
+          deleted_at: deletedAt,
+          expires_at: expiresAt
+        }
+      })
+  } catch (e) {
+    console.error("Supabase recycle_bin fetch error:", e)
+    return []
+  }
 }
 
 export const restoreFromRecycleBin = async (id: string): Promise<boolean> => {
-  const items = await getRecycleBinItems()
-  const target = items.find(i => i.id === id)
-  if (!target) throw new Error("Recycle bin item not found")
+  const { data: target, error: fetchErr } = await supabase
+    .from('recycle_bin')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (fetchErr || !target) throw new Error("Recycle bin item not found in database")
 
   const { type, data } = target
 
   if (type === 'purchase_bill' || type === 'purchase') {
-    const { purchase, purchase_items } = data
+    const { purchase, purchase_items } = data || {}
     if (purchase) {
       const { error: purchaseErr } = await supabase.from('purchases').insert([purchase])
       if (purchaseErr) throw purchaseErr
@@ -105,7 +124,7 @@ export const restoreFromRecycleBin = async (id: string): Promise<boolean> => {
       }
     }
   } else if (type === 'sale_bill' || type === 'sale') {
-    const { sale, sale_items } = data
+    const { sale, sale_items } = data || {}
     if (sale) {
       const { error: saleErr } = await supabase.from('sales').insert([sale])
       if (saleErr) throw saleErr
@@ -114,13 +133,13 @@ export const restoreFromRecycleBin = async (id: string): Promise<boolean> => {
       }
     }
   } else if (type === 'shop') {
-    const { shop } = data
+    const { shop } = data || {}
     if (shop) {
       const { error } = await supabase.from('shops').insert([shop])
       if (error) throw error
     }
   } else if (type === 'worker' || type === 'employee') {
-    const { employee, attendance } = data
+    const { employee, attendance } = data || {}
     if (employee) {
       const { error } = await supabase.from('employees').insert([employee])
       if (error) throw error
@@ -129,31 +148,30 @@ export const restoreFromRecycleBin = async (id: string): Promise<boolean> => {
       }
     }
   } else if (type === 'expense') {
-    const { expense } = data
+    const { expense } = data || {}
     if (expense) {
       const { error } = await supabase.from('expenses').insert([expense])
       if (error) throw error
     }
   } else if (type === 'buyer') {
-    const { buyer } = data
+    const { buyer } = data || {}
     if (buyer) {
       const { error } = await supabase.from('buyers').insert([buyer])
       if (error) throw error
     }
   } else if (type === 'material') {
-    const { material } = data
+    const { material } = data || {}
     if (material) {
       const { error } = await supabase.from('materials').insert([material])
       if (error) throw error
     }
   } else if (type === 'loading') {
-    const { loading } = data
+    const { loading } = data || {}
     if (loading) {
       const { error } = await supabase.from('completed_loadings').insert([loading])
       if (error) throw error
     }
   } else {
-    // Generic fallback for any record
     if (data && typeof data === 'object') {
       for (const [tableName, recordOrArray] of Object.entries(data)) {
         if (Array.isArray(recordOrArray) && recordOrArray.length > 0) {
@@ -166,30 +184,14 @@ export const restoreFromRecycleBin = async (id: string): Promise<boolean> => {
   }
 
   // Remove from Supabase recycle_bin table
-  try {
-    await supabase.from('recycle_bin').delete().eq('id', id)
-  } catch (e) {
-    // Ignore error
-  }
-
-  // Remove from localStorage
-  const localItems = getLocalRecycleBin()
-  const updatedLocal = localItems.filter(i => i.id !== id)
-  setLocalRecycleBin(updatedLocal)
+  const { error: deleteErr } = await supabase.from('recycle_bin').delete().eq('id', id)
+  if (deleteErr) console.error("Error deleting from recycle_bin after restore:", deleteErr)
 
   return true
 }
 
 export const deletePermanentlyFromRecycleBin = async (id: string): Promise<boolean> => {
-  try {
-    await supabase.from('recycle_bin').delete().eq('id', id)
-  } catch (e) {
-    // Ignore error
-  }
-
-  const localItems = getLocalRecycleBin()
-  const updatedLocal = localItems.filter(i => i.id !== id)
-  setLocalRecycleBin(updatedLocal)
-
+  const { error } = await supabase.from('recycle_bin').delete().eq('id', id)
+  if (error) throw error
   return true
 }
