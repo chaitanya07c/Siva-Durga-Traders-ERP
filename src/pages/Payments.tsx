@@ -17,7 +17,7 @@ import type { GroupedSession, BillBreakdown } from "@/lib/pdfUtils"
 import type { Shop } from "@/types/database"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { formatDate, getItemUnit } from "@/lib/utils"
+import { formatDate, getItemUnit, STANDARD_UNIT_OPTIONS } from "@/lib/utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -430,7 +430,7 @@ export function Payments() {
   const [editBillPrevBalance, setEditBillPrevBalance] = useState(0)
   const [editBillAdvance, setEditBillAdvance] = useState(0)
   const [editBillRemarks, setEditBillRemarks] = useState("")
-  const [editBillItems, setEditBillItems] = useState<{ id?: string, name: string, quantity: number, rate: number, total: number }[]>([])
+  const [editBillItems, setEditBillItems] = useState<{ id?: string, name: string, quantity: number, rate: number, total: number, unit?: string }[]>([])
 
   const handleEditBillInitiate = (bill: BillBreakdown) => {
     setEditingBill(bill)
@@ -438,14 +438,21 @@ export function Payments() {
     setEditBillPrevBalance(bill.previous_balance || 0)
     setEditBillAdvance(bill.advance || 0)
     setEditBillRemarks(bill.remarks || "")
-    setEditBillItems(bill.items.map(item => ({ ...item })))
+    setEditBillItems(bill.items.map(item => ({
+      ...item,
+      unit: item.unit || getItemUnit(item.name, 'purchasing', bill.shop?.shop_units || bill.shop)
+    })))
   }
 
-  const handleEditBillItemChange = (index: number, field: 'quantity' | 'rate', value: number) => {
+  const handleEditBillItemChange = (index: number, field: 'quantity' | 'rate' | 'unit', value: number | string) => {
     setEditBillItems(prev => {
       const copy = [...prev]
-      copy[index] = { ...copy[index], [field]: value }
-      copy[index].total = Number((copy[index].quantity * copy[index].rate).toFixed(2))
+      if (field === 'unit') {
+        copy[index] = { ...copy[index], unit: value as string }
+      } else {
+        copy[index] = { ...copy[index], [field]: value as number }
+        copy[index].total = Number((copy[index].quantity * copy[index].rate).toFixed(2))
+      }
       return copy
     })
   }
@@ -477,6 +484,7 @@ export function Payments() {
             .from('purchase_items')
             .update({
               quantity: item.quantity,
+              unit: item.unit,
               rate: item.rate,
               total: item.total
             })
@@ -1206,31 +1214,45 @@ export function Payments() {
               <div className="space-y-2 border-t pt-3">
                 <h3 className="text-sm font-bold text-slate-800 mb-1">Items Breakdown</h3>
                 <div className="bg-slate-50 p-3 rounded-lg border space-y-3">
-                  <div className="grid grid-cols-3 gap-2 text-xs font-bold text-slate-500 border-b pb-1">
+                  <div className="grid grid-cols-4 gap-2 text-xs font-bold text-slate-500 border-b pb-1">
                     <div>Item</div>
                     <div className="text-center">Qty</div>
+                    <div className="text-center">Unit</div>
                     <div className="text-center">Rate (₹)</div>
                   </div>
-                  {editBillItems.map((item, idx) => (
-                    <div key={idx} className="grid grid-cols-3 gap-2 items-center">
-                      <div className="text-xs font-medium text-slate-800 truncate">{item.name}</div>
-                      <input 
-                        type="number"
-                        className="border p-1 rounded text-xs text-center font-medium bg-background"
-                        value={item.quantity || ''}
-                        onChange={e => handleEditBillItemChange(idx, 'quantity', Number(e.target.value))}
-                        placeholder="0"
-                      />
-                      <input 
-                        type="number"
-                        step="0.01"
-                        className="border p-1 rounded text-xs text-center font-medium bg-background"
-                        value={item.rate || ''}
-                        onChange={e => handleEditBillItemChange(idx, 'rate', Number(e.target.value))}
-                        placeholder="0.00"
-                      />
-                    </div>
-                  ))}
+                  {editBillItems.map((item, idx) => {
+                    const currentUnit = item.unit || getItemUnit(item.name, 'purchasing', editingBill.shop?.shop_units || editingBill.shop)
+                    const unitOptions = Array.from(new Set([...STANDARD_UNIT_OPTIONS, currentUnit])).filter(Boolean)
+                    return (
+                      <div key={idx} className="grid grid-cols-4 gap-2 items-center">
+                        <div className="text-xs font-medium text-slate-800 truncate">{item.name}</div>
+                        <input 
+                          type="number"
+                          className="border p-1 rounded text-xs text-center font-medium bg-background"
+                          value={item.quantity || ''}
+                          onChange={e => handleEditBillItemChange(idx, 'quantity', Number(e.target.value))}
+                          placeholder="0"
+                        />
+                        <select
+                          className="border p-1 rounded text-xs text-center font-medium bg-background cursor-pointer"
+                          value={currentUnit}
+                          onChange={e => handleEditBillItemChange(idx, 'unit', e.target.value)}
+                        >
+                          {unitOptions.map(u => (
+                            <option key={u} value={u}>{u}</option>
+                          ))}
+                        </select>
+                        <input 
+                          type="number"
+                          step="0.01"
+                          className="border p-1 rounded text-xs text-center font-medium bg-background"
+                          value={item.rate || ''}
+                          onChange={e => handleEditBillItemChange(idx, 'rate', Number(e.target.value))}
+                          placeholder="0.00"
+                        />
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
 

@@ -252,6 +252,10 @@ export function getItemUnit(
   const name = itemName.trim()
 
   if (context === 'purchasing') {
+    if (explicitUnit && explicitUnit.trim()) {
+      return explicitUnit.trim()
+    }
+
     let shopUnits: Record<string, string> | null = null
 
     if (categoryOrMaterialsOrShop && typeof categoryOrMaterialsOrShop === 'object' && !Array.isArray(categoryOrMaterialsOrShop)) {
@@ -271,10 +275,6 @@ export function getItemUnit(
       if (matchingKey && shopUnits[matchingKey] !== undefined && shopUnits[matchingKey] !== null && shopUnits[matchingKey] !== '') {
         return shopUnits[matchingKey].trim()
       }
-    }
-
-    if (explicitUnit && explicitUnit.trim()) {
-      return explicitUnit.trim()
     }
 
     const lowerName = name.toLowerCase()
