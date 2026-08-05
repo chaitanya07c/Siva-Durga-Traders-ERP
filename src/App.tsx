@@ -13,6 +13,7 @@ import { Loading } from "./pages/Loading"
 import { Reports } from "./pages/Reports"
 import { Settings } from "./pages/Settings"
 import { SalesPayments } from "./pages/SalesPayments"
+import { CashBank } from "./pages/CashBank"
 
 function App() {
   return (
@@ -29,6 +30,7 @@ function App() {
           <Route path="workers" element={<Workers />} />
           <Route path="expenses" element={<Expenses />} />
           <Route path="stock" element={<Stock />} />
+          <Route path="cash-bank" element={<CashBank />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
         </Route>
