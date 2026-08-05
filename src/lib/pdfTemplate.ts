@@ -5,8 +5,8 @@ import { formatDate, getItemUnit } from "./utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
-export const formatQuantity = (name: string, quantity: number, unit?: string) => {
-  const u = (unit && unit.trim()) ? unit.trim() : getItemUnit(name)
+export const formatQuantity = (name: string, quantity: number, unit?: string, context: 'purchasing' | 'sales' = 'purchasing', shopOrUnits?: any) => {
+  const u = (unit && unit.trim()) ? unit.trim() : getItemUnit(name, context, shopOrUnits)
   return `${quantity} ${u}`
 }
 

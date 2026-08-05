@@ -17,7 +17,7 @@ import type { GroupedSession, BillBreakdown } from "@/lib/pdfUtils"
 import type { Shop } from "@/types/database"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { formatDate } from "@/lib/utils"
+import { formatDate, getItemUnit } from "@/lib/utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -369,17 +369,19 @@ export function Payments() {
 
           const bills = purchases.map(fb => {
             const itemsForBill = allItems?.filter(i => i.purchase_id === fb.id) || []
+            const shopObj = ((Array.isArray(fb.shops) ? fb.shops[0] : fb.shops) as Shop) || shop
             const formattedItems = itemsForBill.map(i => {
               const matName = lang === 'te' && i.materials?.name_te ? i.materials.name_te : ((i.materials as any)?.name || 'Unknown')
+              const name = i.item_name || matName
               return {
                 id: i.id,
-                name: i.item_name || matName,
+                name: name,
                 quantity: i.quantity,
+                unit: getItemUnit(name, 'purchasing', shopObj?.shop_units || shopObj, i.unit),
                 rate: i.rate,
                 total: i.total
               }
             })
-            const shopObj = ((Array.isArray(fb.shops) ? fb.shops[0] : fb.shops) as Shop) || shop
             return {
               id: fb.id,
               billNumber: fb.bill_number,
@@ -933,7 +935,7 @@ export function Payments() {
                                     <tr key={i}>
                                       <td className="py-2 text-muted-foreground">{i + 1}</td>
                                       <td className="py-2">{item.name}</td>
-                                      <td className="py-2 text-center">{formatQuantity(item.name, item.quantity, (item as any).unit)}</td>
+                                      <td className="py-2 text-center">{formatQuantity(item.name, item.quantity, (item as any).unit || getItemUnit(item.name, 'purchasing', bill.shop?.shop_units || bill.shop))}</td>
                                       <td className="py-2 text-right">₹{item.rate}</td>
                                       <td className="py-2 text-right font-medium">₹{formatInr(item.total)}</td>
                                     </tr>

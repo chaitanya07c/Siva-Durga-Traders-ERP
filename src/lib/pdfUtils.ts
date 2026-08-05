@@ -25,7 +25,7 @@ export type BillBreakdown = {
   id?: string
   billNumber: number | null
   date: string
-  items: { id?: string, name: string, quantity: number, rate: number, total: number }[]
+  items: { id?: string, name: string, quantity: number, rate: number, total: number, unit?: string }[]
   grandTotal: number
   previous_balance?: number
   advance?: number
@@ -58,7 +58,7 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
         id: i.id,
         name: i.item_name || matName,
         quantity: i.quantity,
-        unit: i.unit || getItemUnit(i.item_name || matName, 'purchasing', shopObj?.shop_units),
+        unit: getItemUnit(i.item_name || matName, 'purchasing', shopObj?.shop_units || shopObj, i.unit),
         rate: i.rate,
         total: i.total
       }
@@ -212,7 +212,7 @@ export const generateCombinedPDF = async (
         const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map((i: any) => ({
           name: i.name,
           quantity: i.quantity,
-          unit: i.unit || getItemUnit(i.name, 'purchasing', currentShop?.shop_units),
+          unit: getItemUnit(i.name, 'purchasing', currentShop?.shop_units || currentShop, i.unit),
           rate: i.rate,
           total: i.total
         }))
@@ -460,7 +460,7 @@ export const generateCombinedGroupPDF = async (
           return {
             name: i.item_name || matName,
             quantity: i.quantity,
-            unit: i.unit || getItemUnit(i.item_name || matName, 'purchasing', shopObj?.shop_units),
+            unit: getItemUnit(i.item_name || matName, 'purchasing', shopObj?.shop_units || shopObj, i.unit),
             rate: i.rate,
             total: i.total
           }
@@ -537,7 +537,7 @@ export const generateCombinedGroupPDF = async (
         const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map((i: any) => ({
           name: i.name,
           quantity: i.quantity,
-          unit: i.unit || getItemUnit(i.name, 'purchasing', bill.shop?.shop_units),
+          unit: getItemUnit(i.name, 'purchasing', bill.shop?.shop_units || bill.shop, i.unit),
           rate: i.rate,
           total: i.total
         }))

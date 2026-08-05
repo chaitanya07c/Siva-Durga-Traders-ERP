@@ -245,33 +245,61 @@ export function getDefaultSalesUnit(category?: string, name?: string): string {
 export function getItemUnit(
   itemName: string,
   context: 'purchasing' | 'sales' = 'sales',
-  categoryOrMaterials?: string | any[] | Record<string, string> | null,
+  categoryOrMaterialsOrShop?: string | any[] | Record<string, string> | any | null,
   explicitUnit?: string | null
 ): string {
-  if (explicitUnit && explicitUnit.trim()) {
-    return explicitUnit.trim()
-  }
   if (!itemName) return 'Kg'
   const name = itemName.trim()
 
   if (context === 'purchasing') {
-    if (typeof categoryOrMaterials === 'object' && categoryOrMaterials !== null && !Array.isArray(categoryOrMaterials)) {
-      const shopUnits = categoryOrMaterials as Record<string, string>
-      if (shopUnits[name]) return shopUnits[name]
+    let shopUnits: Record<string, string> | null = null
+
+    if (categoryOrMaterialsOrShop && typeof categoryOrMaterialsOrShop === 'object' && !Array.isArray(categoryOrMaterialsOrShop)) {
+      if ('shop_units' in categoryOrMaterialsOrShop && categoryOrMaterialsOrShop.shop_units) {
+        shopUnits = categoryOrMaterialsOrShop.shop_units as Record<string, string>
+      } else {
+        shopUnits = categoryOrMaterialsOrShop as Record<string, string>
+      }
     }
-    return DEFAULT_PURCHASE_UNITS[name] || 'Nos'
+
+    if (shopUnits && typeof shopUnits === 'object') {
+      if (shopUnits[name] !== undefined && shopUnits[name] !== null && shopUnits[name] !== '') {
+        return shopUnits[name].trim()
+      }
+      const lowerName = name.toLowerCase()
+      const matchingKey = Object.keys(shopUnits).find(k => k.trim().toLowerCase() === lowerName)
+      if (matchingKey && shopUnits[matchingKey] !== undefined && shopUnits[matchingKey] !== null && shopUnits[matchingKey] !== '') {
+        return shopUnits[matchingKey].trim()
+      }
+    }
+
+    if (explicitUnit && explicitUnit.trim()) {
+      return explicitUnit.trim()
+    }
+
+    const lowerName = name.toLowerCase()
+    const defaultKey = Object.keys(DEFAULT_PURCHASE_UNITS).find(k => k.trim().toLowerCase() === lowerName)
+    if (defaultKey) {
+      return DEFAULT_PURCHASE_UNITS[defaultKey]
+    }
+
+    return 'Nos'
   }
 
   // Sales context
-  if (Array.isArray(categoryOrMaterials)) {
-    const mat = categoryOrMaterials.find(
+  if (explicitUnit && explicitUnit.trim()) {
+    return explicitUnit.trim()
+  }
+
+  if (Array.isArray(categoryOrMaterialsOrShop)) {
+    const mat = categoryOrMaterialsOrShop.find(
       (m: any) => m.name && m.name.toLowerCase() === name.toLowerCase()
     )
     if (mat && mat.unit) return mat.unit
     if (mat && mat.category) return getDefaultSalesUnit(mat.category, name)
   }
 
-  const category = typeof categoryOrMaterials === 'string' ? categoryOrMaterials : undefined
+  const category = typeof categoryOrMaterialsOrShop === 'string' ? categoryOrMaterialsOrShop : undefined
   return getDefaultSalesUnit(category, name)
 }
 

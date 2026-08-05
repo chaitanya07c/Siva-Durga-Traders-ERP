@@ -195,7 +195,7 @@ export function Purchasing() {
           material_id: mat?.id || null,
           item_name: item.name,
           quantity: item.quantity,
-          unit: getItemUnit(item.name, 'purchasing', selectedShopObj?.shop_units),
+          unit: getItemUnit(item.name, 'purchasing', selectedShopObj),
           rate: item.rate,
           total: item.total
         }
@@ -395,7 +395,7 @@ export function Purchasing() {
                                 placeholder="0" 
                               />
                               <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-1 rounded shrink-0 border">
-                                {getItemUnit(item.name, 'purchasing', shops.find(s => s.id === selectedShopId)?.shop_units)}
+                                {getItemUnit(item.name, 'purchasing', shops.find(s => s.id === selectedShopId))}
                               </span>
                             </div>
                           </td>
