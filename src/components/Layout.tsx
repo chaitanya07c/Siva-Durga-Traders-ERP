@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation } from "react-router-dom"
 import { useState, useEffect } from "react"
-import { LayoutDashboard, Store, ShoppingCart, Banknote, Users, FileText, Settings as SettingsIcon, Truck, Search, Mic, CreditCard, Menu, X, Receipt, Boxes, Landmark } from "lucide-react"
+import { LayoutDashboard, Store, ShoppingCart, Banknote, Users, FileText, Settings as SettingsIcon, Truck, Search, Mic, CreditCard, Menu, X, Receipt, Boxes } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const navItems = [
@@ -14,7 +14,6 @@ const navItems = [
   { name: "Workers", te: "పనివారు", path: "/workers", icon: Users },
   { name: "Expenses", te: "ఖర్చులు", path: "/expenses", icon: Receipt },
   { name: "Stock", te: "స్టాక్", path: "/stock", icon: Boxes },
-  { name: "Cash & Bank", te: "నగదు & బ్యాంక్", path: "/cash-bank", icon: Landmark },
   { name: "Reports", te: "నివేదికలు", path: "/reports", icon: FileText },
   { name: "Settings", te: "సెట్టింగులు", path: "/settings", icon: SettingsIcon },
 ]

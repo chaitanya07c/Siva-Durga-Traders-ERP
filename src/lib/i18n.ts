@@ -10,7 +10,6 @@ const translations = {
     salesPayments: "Sales Payments",
     expenses: "Expenses",
     stock: "Stock",
-    cashBank: "Cash & Bank",
     salesStock: "Sales Stock",
     reports: "Reports",
     settings: "Settings",
