@@ -118,6 +118,14 @@ export function Shops() {
     delete payload.id
     delete payload.created_at
     
+    // Two-Way Sync calculation for combinable_shop_ids
+    const currentShopId = editingShop ? editingShop.id : null
+    const oldSelectedIds: string[] = editingShop?.combinable_shop_ids || []
+    const newSelectedIds: string[] = payload.combinable_shop_ids || []
+
+    const addedIds = newSelectedIds.filter(id => !oldSelectedIds.includes(id))
+    const removedIds = oldSelectedIds.filter(id => !newSelectedIds.includes(id))
+
     if (editingShop) {
       const { error } = await supabase.from('shops').update(payload).eq('id', editingShop.id)
       if (error) {
@@ -132,12 +140,33 @@ export function Shops() {
           fetchShops()
         }
       } else {
+        // Perform Two-Way database relationship sync for added/removed shops
+        for (const targetId of addedIds) {
+          const targetShop = shops.find(s => s.id === targetId)
+          if (targetShop) {
+            const existingIds: string[] = targetShop.combinable_shop_ids || []
+            if (!existingIds.includes(currentShopId!)) {
+              const updatedTargetIds = [...existingIds, currentShopId!]
+              await supabase.from('shops').update({ combinable_shop_ids: updatedTargetIds }).eq('id', targetId)
+            }
+          }
+        }
+        for (const targetId of removedIds) {
+          const targetShop = shops.find(s => s.id === targetId)
+          if (targetShop) {
+            const existingIds: string[] = targetShop.combinable_shop_ids || []
+            if (existingIds.includes(currentShopId!)) {
+              const updatedTargetIds = existingIds.filter(id => id !== currentShopId)
+              await supabase.from('shops').update({ combinable_shop_ids: updatedTargetIds }).eq('id', targetId)
+            }
+          }
+        }
         toast.success(t("successUpdate", lang))
         setIsModalOpen(false)
         fetchShops()
       }
     } else {
-      const { error } = await supabase.from('shops').insert([payload])
+      const { data: insertedData, error } = await supabase.from('shops').insert([payload]).select()
       if (error) {
         // Fallback retry without combinable_shop_ids if column is not in DB schema cache yet
         const fallbackPayload = { ...payload }
@@ -150,6 +179,19 @@ export function Shops() {
           fetchShops()
         }
       } else {
+        const newShopObj = insertedData?.[0]
+        if (newShopObj && newSelectedIds.length > 0) {
+          for (const targetId of newSelectedIds) {
+            const targetShop = shops.find(s => s.id === targetId)
+            if (targetShop) {
+              const existingIds: string[] = targetShop.combinable_shop_ids || []
+              if (!existingIds.includes(newShopObj.id)) {
+                const updatedTargetIds = [...existingIds, newShopObj.id]
+                await supabase.from('shops').update({ combinable_shop_ids: updatedTargetIds }).eq('id', targetId)
+              }
+            }
+          }
+        }
         toast.success(t("successSave", lang))
         setIsModalOpen(false)
         fetchShops()
@@ -435,54 +477,108 @@ export function Shops() {
                     <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   </div>
 
-                  {/* Scrollable multi-select checkbox list */}
-                  <div className="max-h-48 overflow-y-auto border rounded-lg p-2.5 bg-muted/20 space-y-1.5 divide-y divide-border/40">
-                    {shops
+                  {/* Scrollable multi-select checkbox list prioritizing SELECTED SHOPS */}
+                  {(() => {
+                    const selectedIds = formData.combinable_shop_ids || []
+                    const candidateShops = shops
                       .filter(s => s.id !== editingShop?.id)
                       .filter(s => {
                         if (!shopFilterQuery) return true
                         const q = shopFilterQuery.toLowerCase()
                         return s.name.toLowerCase().includes(q) || (s.landmark && s.landmark.toLowerCase().includes(q))
                       })
-                      .length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic py-3 text-center">No matching shops available.</p>
-                      ) : (
-                        shops
-                          .filter(s => s.id !== editingShop?.id)
-                          .filter(s => {
-                            if (!shopFilterQuery) return true
-                            const q = shopFilterQuery.toLowerCase()
-                            return s.name.toLowerCase().includes(q) || (s.landmark && s.landmark.toLowerCase().includes(q))
-                          })
-                          .map(otherShop => {
-                            const isChecked = (formData.combinable_shop_ids || []).includes(otherShop.id)
-                            return (
-                              <label key={otherShop.id} className="flex items-center justify-between pt-1.5 first:pt-0 text-xs cursor-pointer hover:bg-muted/40 p-1.5 rounded transition-colors">
-                                <div className="flex items-center gap-2">
-                                  <input 
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={e => {
-                                      const currentIds = formData.combinable_shop_ids || []
-                                      let updatedIds: string[] = []
-                                      if (e.target.checked) {
-                                        updatedIds = [...currentIds, otherShop.id]
-                                      } else {
-                                        updatedIds = currentIds.filter(id => id !== otherShop.id)
-                                      }
-                                      setFormData({ ...formData, combinable_shop_ids: updatedIds })
-                                    }}
-                                    className="w-4 h-4 accent-primary rounded cursor-pointer"
-                                  />
-                                  <span className="font-semibold text-slate-800">{lang === 'te' && otherShop.name_te ? otherShop.name_te : otherShop.name}</span>
-                                  {otherShop.landmark && <span className="text-[11px] text-muted-foreground">({otherShop.landmark})</span>}
-                                </div>
-                                <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">{otherShop.type}</span>
-                              </label>
-                            )
-                          })
-                      )}
-                  </div>
+
+                    const selectedShopsList = candidateShops
+                      .filter(s => selectedIds.includes(s.id))
+                      .sort((a, b) => a.name.localeCompare(b.name))
+
+                    const unselectedShopsList = candidateShops
+                      .filter(s => !selectedIds.includes(s.id))
+                      .sort((a, b) => a.name.localeCompare(b.name))
+
+                    if (candidateShops.length === 0) {
+                      return (
+                        <div className="border rounded-lg p-3 bg-muted/20 text-center">
+                          <p className="text-xs text-muted-foreground italic py-1">No matching shops available.</p>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <div className="max-h-56 overflow-y-auto border rounded-lg p-2.5 bg-muted/20 space-y-3">
+                        {/* Selected Shops Section at Top */}
+                        {selectedShopsList.length > 0 && (
+                          <div>
+                            <div className="flex items-center justify-between px-1 mb-1.5 border-b pb-1">
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                {lang === 'te' ? "ఎంచుకున్న షాపులు" : "Selected Shops"}
+                              </span>
+                              <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                                {selectedShopsList.length}
+                              </span>
+                            </div>
+                            <div className="space-y-1 bg-emerald-50/40 p-1.5 rounded-md border border-emerald-100">
+                              {selectedShopsList.map(otherShop => (
+                                <label key={otherShop.id} className="flex items-center justify-between text-xs cursor-pointer bg-white hover:bg-emerald-50 p-1.5 rounded border border-emerald-200 shadow-sm transition-all">
+                                  <div className="flex items-center gap-2">
+                                    <input 
+                                      type="checkbox"
+                                      checked={true}
+                                      onChange={() => {
+                                        const currentIds = formData.combinable_shop_ids || []
+                                        const updatedIds = currentIds.filter(id => id !== otherShop.id)
+                                        setFormData({ ...formData, combinable_shop_ids: updatedIds })
+                                      }}
+                                      className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                                    />
+                                    <span className="font-bold text-slate-900">{lang === 'te' && otherShop.name_te ? otherShop.name_te : otherShop.name}</span>
+                                    {otherShop.landmark && <span className="text-[11px] text-muted-foreground">({otherShop.landmark})</span>}
+                                  </div>
+                                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">{otherShop.type}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Other Shops Section Below */}
+                        {unselectedShopsList.length > 0 && (
+                          <div>
+                            <div className="flex items-center justify-between px-1 mb-1.5 border-b pb-1">
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                                {lang === 'te' ? "ఇతర షాపులు" : "Other Shops"}
+                              </span>
+                              <span className="text-[10px] font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+                                {unselectedShopsList.length}
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              {unselectedShopsList.map(otherShop => (
+                                <label key={otherShop.id} className="flex items-center justify-between text-xs cursor-pointer hover:bg-muted/40 p-1.5 rounded border border-border/50 transition-colors">
+                                  <div className="flex items-center gap-2">
+                                    <input 
+                                      type="checkbox"
+                                      checked={false}
+                                      onChange={() => {
+                                        const currentIds = formData.combinable_shop_ids || []
+                                        const updatedIds = [...currentIds, otherShop.id]
+                                        setFormData({ ...formData, combinable_shop_ids: updatedIds })
+                                      }}
+                                      className="w-4 h-4 accent-primary rounded cursor-pointer"
+                                    />
+                                    <span className="font-semibold text-slate-800">{lang === 'te' && otherShop.name_te ? otherShop.name_te : otherShop.name}</span>
+                                    {otherShop.landmark && <span className="text-[11px] text-muted-foreground">({otherShop.landmark})</span>}
+                                  </div>
+                                  <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">{otherShop.type}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
 
