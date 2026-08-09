@@ -341,14 +341,7 @@ export function areShopsCombinable(shopA: any, shopB: any): boolean {
   const listA: string[] = Array.isArray(shopA.combinable_shop_ids) ? shopA.combinable_shop_ids : []
   const listB: string[] = Array.isArray(shopB.combinable_shop_ids) ? shopB.combinable_shop_ids : []
 
-  const aHasExplicit = listA.length > 0
-  const bHasExplicit = listB.length > 0
-
-  if (aHasExplicit || bHasExplicit) {
-    return listA.includes(shopB.id) || listB.includes(shopA.id)
-  }
-
-  return checkPredefinedGroupMatch(shopA, shopB)
+  return listA.includes(shopB.id) || listB.includes(shopA.id)
 }
 
 /**
@@ -358,5 +351,23 @@ export function getCombinableShops(targetShop: any, allShops: any[]): any[] {
   if (!targetShop || !allShops) return []
   return allShops.filter(otherShop => areShopsCombinable(targetShop, otherShop))
 }
+
+/**
+ * Resolves all effective combinable shop IDs for a shop by combining:
+ * 1) IDs stored directly in shop.combinable_shop_ids
+ * 2) IDs of any other shop in allShops that has targetShop.id in its combinable_shop_ids (reverse lookup)
+ */
+export function getShopEffectiveCombinableIds(targetShop: any, allShops: any[]): string[] {
+  if (!targetShop) return []
+  const ownIds: string[] = Array.isArray(targetShop.combinable_shop_ids) ? targetShop.combinable_shop_ids : []
+  if (!allShops || allShops.length === 0) return ownIds
+
+  const reverseIds: string[] = allShops
+    .filter(s => s.id !== targetShop.id && Array.isArray(s.combinable_shop_ids) && s.combinable_shop_ids.includes(targetShop.id))
+    .map(s => s.id)
+
+  return Array.from(new Set([...ownIds, ...reverseIds]))
+}
+
 
 

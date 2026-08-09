@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import { addToRecycleBin } from "@/lib/recycleBin"
-import { DEFAULT_PURCHASE_UNITS, STANDARD_UNIT_OPTIONS } from "@/lib/utils"
+import { DEFAULT_PURCHASE_UNITS, STANDARD_UNIT_OPTIONS, getShopEffectiveCombinableIds } from "@/lib/utils"
 
 const WINE_FIXED_ITEMS = ["Beer", "L.C.'s", "Full's", "Atta", "Plastic", "Nibe Box", "Beer Box"]
 const IRON_FIXED_ITEMS = ["Glass", "Beer"]
@@ -120,11 +120,11 @@ export function Shops() {
     
     // Two-Way Sync calculation for combinable_shop_ids
     const currentShopId = editingShop ? editingShop.id : null
-    const oldSelectedIds: string[] = editingShop?.combinable_shop_ids || []
+    const oldEffectiveIds: string[] = editingShop ? getShopEffectiveCombinableIds(editingShop, shops) : []
     const newSelectedIds: string[] = payload.combinable_shop_ids || []
 
-    const addedIds = newSelectedIds.filter(id => !oldSelectedIds.includes(id))
-    const removedIds = oldSelectedIds.filter(id => !newSelectedIds.includes(id))
+    const addedIds = newSelectedIds.filter(id => !oldEffectiveIds.includes(id))
+    const removedIds = oldEffectiveIds.filter(id => !newSelectedIds.includes(id))
 
     if (editingShop) {
       const { error } = await supabase.from('shops').update(payload).eq('id', editingShop.id)
@@ -140,27 +140,25 @@ export function Shops() {
           fetchShops()
         }
       } else {
-        // Perform Two-Way database relationship sync for added/removed shops
+        // Perform Two-Way database relationship sync for added/removed shops directly in DB
         for (const targetId of addedIds) {
-          const targetShop = shops.find(s => s.id === targetId)
-          if (targetShop) {
-            const existingIds: string[] = targetShop.combinable_shop_ids || []
-            if (!existingIds.includes(currentShopId!)) {
-              const updatedTargetIds = [...existingIds, currentShopId!]
-              await supabase.from('shops').update({ combinable_shop_ids: updatedTargetIds }).eq('id', targetId)
-            }
+          const { data: targetData } = await supabase.from('shops').select('combinable_shop_ids').eq('id', targetId).single()
+          const existingIds: string[] = Array.isArray(targetData?.combinable_shop_ids) ? targetData.combinable_shop_ids : []
+          if (!existingIds.includes(currentShopId!)) {
+            const updatedTargetIds = [...existingIds, currentShopId!]
+            await supabase.from('shops').update({ combinable_shop_ids: updatedTargetIds }).eq('id', targetId)
           }
         }
+
         for (const targetId of removedIds) {
-          const targetShop = shops.find(s => s.id === targetId)
-          if (targetShop) {
-            const existingIds: string[] = targetShop.combinable_shop_ids || []
-            if (existingIds.includes(currentShopId!)) {
-              const updatedTargetIds = existingIds.filter(id => id !== currentShopId)
-              await supabase.from('shops').update({ combinable_shop_ids: updatedTargetIds }).eq('id', targetId)
-            }
+          const { data: targetData } = await supabase.from('shops').select('combinable_shop_ids').eq('id', targetId).single()
+          const existingIds: string[] = Array.isArray(targetData?.combinable_shop_ids) ? targetData.combinable_shop_ids : []
+          if (existingIds.includes(currentShopId!)) {
+            const updatedTargetIds = existingIds.filter(id => id !== currentShopId)
+            await supabase.from('shops').update({ combinable_shop_ids: updatedTargetIds }).eq('id', targetId)
           }
         }
+
         toast.success(t("successUpdate", lang))
         setIsModalOpen(false)
         fetchShops()
@@ -182,13 +180,11 @@ export function Shops() {
         const newShopObj = insertedData?.[0]
         if (newShopObj && newSelectedIds.length > 0) {
           for (const targetId of newSelectedIds) {
-            const targetShop = shops.find(s => s.id === targetId)
-            if (targetShop) {
-              const existingIds: string[] = targetShop.combinable_shop_ids || []
-              if (!existingIds.includes(newShopObj.id)) {
-                const updatedTargetIds = [...existingIds, newShopObj.id]
-                await supabase.from('shops').update({ combinable_shop_ids: updatedTargetIds }).eq('id', targetId)
-              }
+            const { data: targetData } = await supabase.from('shops').select('combinable_shop_ids').eq('id', targetId).single()
+            const existingIds: string[] = Array.isArray(targetData?.combinable_shop_ids) ? targetData.combinable_shop_ids : []
+            if (!existingIds.includes(newShopObj.id)) {
+              const updatedTargetIds = [...existingIds, newShopObj.id]
+              await supabase.from('shops').update({ combinable_shop_ids: updatedTargetIds }).eq('id', targetId)
             }
           }
         }
@@ -208,7 +204,8 @@ export function Shops() {
         initialUnits[item] = DEFAULT_PURCHASE_UNITS[item] || "Nos"
       }
     })
-    setFormData({ ...shop, shop_rates: shop.shop_rates || {}, shop_units: initialUnits, combinable_shop_ids: shop.combinable_shop_ids || [] })
+    const effectiveCombinableIds = getShopEffectiveCombinableIds(shop, shops)
+    setFormData({ ...shop, shop_rates: shop.shop_rates || {}, shop_units: initialUnits, combinable_shop_ids: effectiveCombinableIds })
     setIsModalOpen(true)
   }
 
