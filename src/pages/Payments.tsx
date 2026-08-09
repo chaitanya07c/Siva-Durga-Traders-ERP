@@ -8,8 +8,6 @@ import {
   generateCombinedPDF, 
   shareWhatsApp, 
   formatQuantity,
-  belongsToPredefinedGroup,
-  getPredefinedGroupShops,
   generateCombinedGroupPDF,
   shareCombinedGroupWhatsApp
 } from "@/lib/pdfUtils"
@@ -17,7 +15,7 @@ import type { GroupedSession, BillBreakdown } from "@/lib/pdfUtils"
 import type { Shop } from "@/types/database"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
-import { formatDate, getItemUnit, STANDARD_UNIT_OPTIONS } from "@/lib/utils"
+import { formatDate, getItemUnit, STANDARD_UNIT_OPTIONS, getCombinableShops } from "@/lib/utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
 
@@ -154,6 +152,10 @@ export function Payments() {
     return shop ? shop.marked_for_combined_bill : false
   }
 
+  const getShopsForGroup = (shop: Shop): Shop[] => {
+    return getCombinableShops(shop, shops)
+  }
+
   const shouldShowCombinedToggle = (session: GroupedSession) => {
     if (session.status !== 'Pending') return false
     
@@ -169,15 +171,9 @@ export function Payments() {
       return true
     }
     
-    // Check 2: Owner group (predefined or Akividu) has 2 or more pending shops
-    let groupShops: Shop[] = []
-    if (belongsToPredefinedGroup(shop.name)) {
-      groupShops = getPredefinedGroupShops(shops, shop)
-    } else if (shop.type === 'Akividu Wine') {
-      groupShops = shops.filter(s => s.type === 'Akividu Wine')
-    }
-    
-    if (groupShops.length > 0) {
+    // Check 2: Combinable shops group has 2 or more pending shops
+    const groupShops = getShopsForGroup(shop)
+    if (groupShops.length > 1) {
       const groupShopIds = new Set(groupShops.map(s => s.id))
       const pendingGroupShopsCount = groupedSessions.filter(s => groupShopIds.has(s.shop_id) && s.status === 'Pending').length
       if (pendingGroupShopsCount >= 2) {
@@ -194,15 +190,7 @@ export function Payments() {
       if (!shop) return
       const newVal = !shop.marked_for_combined_bill
       
-      let groupShops: Shop[] = []
-      if (belongsToPredefinedGroup(shop.name)) {
-        groupShops = getPredefinedGroupShops(shops, shop)
-      } else if (shop.type === 'Akividu Wine') {
-        groupShops = shops.filter(s => s.type === 'Akividu Wine')
-      } else {
-        groupShops = [shop]
-      }
-      
+      const groupShops = getShopsForGroup(shop)
       const shopIds = groupShops.map(s => s.id)
       
       const { error } = await supabase
@@ -229,15 +217,7 @@ export function Payments() {
   const handleCompletePaymentInitiate = async (session: GroupedSession) => {
     const shop = shops.find(s => s.id === session.shop_id)
     if (shop && shop.marked_for_combined_bill) {
-      let groupShops: Shop[] = []
-      if (belongsToPredefinedGroup(shop.name)) {
-        groupShops = getPredefinedGroupShops(shops, shop)
-      } else if (shop.type === 'Akividu Wine') {
-        groupShops = shops.filter(s => s.type === 'Akividu Wine')
-      } else {
-        groupShops = [shop]
-      }
-      
+      const groupShops = getShopsForGroup(shop)
       const shopIds = groupShops.map(s => s.id)
       const { data: groupPurchases } = await supabase
         .from('purchases')
@@ -340,15 +320,7 @@ export function Payments() {
     try {
       const shop = shops.find(s => s.id === session.shop_id)
       if (shop && shop.marked_for_combined_bill) {
-        let groupShops: Shop[] = []
-        if (belongsToPredefinedGroup(shop.name)) {
-          groupShops = getPredefinedGroupShops(shops, shop)
-        } else if (shop.type === 'Akividu Wine') {
-          groupShops = shops.filter(s => s.type === 'Akividu Wine')
-        } else {
-          groupShops = [shop]
-        }
-        
+        const groupShops = getShopsForGroup(shop)
         const shopIds = groupShops.map(s => s.id)
         const { data: purchases } = await supabase
           .from('purchases')

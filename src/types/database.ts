@@ -15,6 +15,7 @@ export type Shop = {
   status: string
   marked_for_loading: boolean
   marked_for_combined_bill: boolean
+  combinable_shop_ids?: string[] | null
   shop_rates: Record<string, number>
   shop_units?: Record<string, string>
   created_at: string

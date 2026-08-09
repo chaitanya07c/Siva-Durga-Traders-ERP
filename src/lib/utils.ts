@@ -303,3 +303,60 @@ export function getItemUnit(
   return getDefaultSalesUnit(category, name)
 }
 
+/**
+ * Checks if two shops match pre-existing hardcoded group definitions or Akividu category rules.
+ */
+export function checkPredefinedGroupMatch(shopA: any, shopB: any): boolean {
+  if (!shopA || !shopB) return false
+  if (shopA.id === shopB.id) return true
+  
+  const nameA = (shopA.name || '').toLowerCase().trim()
+  const nameB = (shopB.name || '').toLowerCase().trim()
+
+  const durgaGroup = ['durga bar', 'durga wines', 'vijaya durga wines']
+  if (durgaGroup.includes(nameA) && durgaGroup.includes(nameB)) return true
+
+  if (nameA === 'suchitra wines' && nameB === 'suchitra wines') return true
+
+  const satyaGroup = ['satya krishna bar', 'satya krishna wines']
+  if (satyaGroup.includes(nameA) && satyaGroup.includes(nameB)) return true
+
+  const ramuGroup = ['jayaram wines', 'vasu raju wines', 'venkateswara wines']
+  if (ramuGroup.includes(nameA) && ramuGroup.includes(nameB)) return true
+
+  if (shopA.type === 'Akividu Wine' && shopB.type === 'Akividu Wine') return true
+
+  return false
+}
+
+/**
+ * Checks two-way compatibility between two shops for Combined Bills.
+ * If either shop has explicit combinable_shop_ids configured, checks if either shop selected the other.
+ * If neither shop has explicit configuration, falls back to pre-existing group rules.
+ */
+export function areShopsCombinable(shopA: any, shopB: any): boolean {
+  if (!shopA || !shopB) return false
+  if (shopA.id === shopB.id) return true
+
+  const listA: string[] = Array.isArray(shopA.combinable_shop_ids) ? shopA.combinable_shop_ids : []
+  const listB: string[] = Array.isArray(shopB.combinable_shop_ids) ? shopB.combinable_shop_ids : []
+
+  const aHasExplicit = listA.length > 0
+  const bHasExplicit = listB.length > 0
+
+  if (aHasExplicit || bHasExplicit) {
+    return listA.includes(shopB.id) || listB.includes(shopA.id)
+  }
+
+  return checkPredefinedGroupMatch(shopA, shopB)
+}
+
+/**
+ * Returns all shops from allShops that are eligible to be combined with targetShop.
+ */
+export function getCombinableShops(targetShop: any, allShops: any[]): any[] {
+  if (!targetShop || !allShops) return []
+  return allShops.filter(otherShop => areShopsCombinable(targetShop, otherShop))
+}
+
+

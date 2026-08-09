@@ -52,9 +52,10 @@ export function Shops() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const [editingShop, setEditingShop] = useState<Shop | null>(null)
   const [shopHistory, setShopHistory] = useState<any[]>([])
+  const [shopFilterQuery, setShopFilterQuery] = useState("")
   
   const [formData, setFormData] = useState<Partial<Shop>>({
-    name: "", name_te: "", type: "Wine", landmark: "", landmark_te: "", contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", address: "", address_te: "", marked_for_loading: false, shop_rates: {}, shop_units: {}
+    name: "", name_te: "", type: "Wine", landmark: "", landmark_te: "", contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", address: "", address_te: "", marked_for_loading: false, shop_rates: {}, shop_units: {}, combinable_shop_ids: []
   })
 
   useEffect(() => {
@@ -119,16 +120,36 @@ export function Shops() {
     
     if (editingShop) {
       const { error } = await supabase.from('shops').update(payload).eq('id', editingShop.id)
-      if (error) toast.error("Failed to update: " + error.message)
-      else {
+      if (error) {
+        // Fallback retry without combinable_shop_ids if column is not in DB schema cache yet
+        const fallbackPayload = { ...payload }
+        delete (fallbackPayload as any).combinable_shop_ids
+        const { error: retryError } = await supabase.from('shops').update(fallbackPayload).eq('id', editingShop.id)
+        if (retryError) toast.error("Failed to update: " + retryError.message)
+        else {
+          toast.success(t("successUpdate", lang))
+          setIsModalOpen(false)
+          fetchShops()
+        }
+      } else {
         toast.success(t("successUpdate", lang))
         setIsModalOpen(false)
         fetchShops()
       }
     } else {
       const { error } = await supabase.from('shops').insert([payload])
-      if (error) toast.error("Failed to create: " + error.message)
-      else {
+      if (error) {
+        // Fallback retry without combinable_shop_ids if column is not in DB schema cache yet
+        const fallbackPayload = { ...payload }
+        delete (fallbackPayload as any).combinable_shop_ids
+        const { error: retryError } = await supabase.from('shops').insert([fallbackPayload])
+        if (retryError) toast.error("Failed to create: " + retryError.message)
+        else {
+          toast.success(t("successSave", lang))
+          setIsModalOpen(false)
+          fetchShops()
+        }
+      } else {
         toast.success(t("successSave", lang))
         setIsModalOpen(false)
         fetchShops()
@@ -138,23 +159,25 @@ export function Shops() {
 
   const openEdit = (shop: Shop) => {
     setEditingShop(shop)
+    setShopFilterQuery("")
     const initialUnits: Record<string, string> = { ...(shop.shop_units || {}) }
     WINE_FIXED_ITEMS.concat(IRON_FIXED_ITEMS).forEach(item => {
       if (!initialUnits[item]) {
         initialUnits[item] = DEFAULT_PURCHASE_UNITS[item] || "Nos"
       }
     })
-    setFormData({ ...shop, shop_rates: shop.shop_rates || {}, shop_units: initialUnits })
+    setFormData({ ...shop, shop_rates: shop.shop_rates || {}, shop_units: initialUnits, combinable_shop_ids: shop.combinable_shop_ids || [] })
     setIsModalOpen(true)
   }
 
   const openCreate = () => {
     setEditingShop(null)
+    setShopFilterQuery("")
     const initialUnits: Record<string, string> = {}
     WINE_FIXED_ITEMS.concat(IRON_FIXED_ITEMS).forEach(item => {
       initialUnits[item] = DEFAULT_PURCHASE_UNITS[item] || "Nos"
     })
-    setFormData({ name: "", name_te: "", type: typeFilter, landmark: "", landmark_te: "", contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", address: "", address_te: "", marked_for_loading: false, shop_rates: {}, shop_units: initialUnits })
+    setFormData({ name: "", name_te: "", type: typeFilter, landmark: "", landmark_te: "", contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", address: "", address_te: "", marked_for_loading: false, shop_rates: {}, shop_units: initialUnits, combinable_shop_ids: [] })
     setIsModalOpen(true)
   }
 
@@ -387,6 +410,79 @@ export function Shops() {
                     onChange={e => setFormData({...formData, marked_for_loading: e.target.checked})} 
                   />
                   <label htmlFor="loadingCheck" className="text-sm font-medium cursor-pointer">{t("markedForLoading", lang)}</label>
+                </div>
+
+                {/* Combined Bills Configuration Section */}
+                <div className="col-span-1 sm:col-span-2 border-t pt-4 mt-2">
+                  <label className="block text-sm font-bold text-slate-800 mb-1">
+                    {lang === 'te' ? "కంబైన్డ్ బిల్లుల షాపుల ఎంపిక (Combined Bills)" : "Combined Bills Configuration"}
+                  </label>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {lang === 'te' 
+                      ? "ఈ షాపుతో కలిపి కంబైన్డ్ బిల్లు తయారుచేయదగిన ఇతర షాపులను ఎంచుకోండి." 
+                      : "Select which other shops can be combined with this shop."}
+                  </p>
+                  
+                  {/* Search filter inside modal */}
+                  <div className="relative mb-2">
+                    <input 
+                      type="text" 
+                      placeholder={lang === 'te' ? "షాపుల పేరు ద్వారా వెతకండి..." : "Filter shop names..."} 
+                      value={shopFilterQuery}
+                      onChange={e => setShopFilterQuery(e.target.value)}
+                      className="w-full text-xs border p-2 pl-8 rounded bg-background"
+                    />
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  </div>
+
+                  {/* Scrollable multi-select checkbox list */}
+                  <div className="max-h-48 overflow-y-auto border rounded-lg p-2.5 bg-muted/20 space-y-1.5 divide-y divide-border/40">
+                    {shops
+                      .filter(s => s.id !== editingShop?.id)
+                      .filter(s => {
+                        if (!shopFilterQuery) return true
+                        const q = shopFilterQuery.toLowerCase()
+                        return s.name.toLowerCase().includes(q) || (s.landmark && s.landmark.toLowerCase().includes(q))
+                      })
+                      .length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic py-3 text-center">No matching shops available.</p>
+                      ) : (
+                        shops
+                          .filter(s => s.id !== editingShop?.id)
+                          .filter(s => {
+                            if (!shopFilterQuery) return true
+                            const q = shopFilterQuery.toLowerCase()
+                            return s.name.toLowerCase().includes(q) || (s.landmark && s.landmark.toLowerCase().includes(q))
+                          })
+                          .map(otherShop => {
+                            const isChecked = (formData.combinable_shop_ids || []).includes(otherShop.id)
+                            return (
+                              <label key={otherShop.id} className="flex items-center justify-between pt-1.5 first:pt-0 text-xs cursor-pointer hover:bg-muted/40 p-1.5 rounded transition-colors">
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={e => {
+                                      const currentIds = formData.combinable_shop_ids || []
+                                      let updatedIds: string[] = []
+                                      if (e.target.checked) {
+                                        updatedIds = [...currentIds, otherShop.id]
+                                      } else {
+                                        updatedIds = currentIds.filter(id => id !== otherShop.id)
+                                      }
+                                      setFormData({ ...formData, combinable_shop_ids: updatedIds })
+                                    }}
+                                    className="w-4 h-4 accent-primary rounded cursor-pointer"
+                                  />
+                                  <span className="font-semibold text-slate-800">{lang === 'te' && otherShop.name_te ? otherShop.name_te : otherShop.name}</span>
+                                  {otherShop.landmark && <span className="text-[11px] text-muted-foreground">({otherShop.landmark})</span>}
+                                </div>
+                                <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">{otherShop.type}</span>
+                              </label>
+                            )
+                          })
+                      )}
+                  </div>
                 </div>
               </div>
 

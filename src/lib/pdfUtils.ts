@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase"
 import type { Shop } from "@/types/database"
 import { toast } from "sonner"
-import { formatDate, getItemUnit } from "./utils"
+import { formatDate, getItemUnit, getCombinableShops } from "./utils"
 
 import { formatQuantity, generateProfessionalPDF, type PDFDocumentData } from "./pdfTemplate"
 export { formatQuantity }
@@ -323,7 +323,12 @@ export const buildCurrentSession = async (session_id: string): Promise<GroupedSe
   return session
 }
 
-export const belongsToPredefinedGroup = (shopName: string): boolean => {
+export const belongsToPredefinedGroup = (shopOrName: Shop | string, allShops?: Shop[]): boolean => {
+  if (typeof shopOrName === 'object' && shopOrName && allShops) {
+    const combinable = getCombinableShops(shopOrName, allShops)
+    return combinable.length > 1
+  }
+  const shopName = typeof shopOrName === 'string' ? shopOrName : (shopOrName?.name || '')
   const nameLower = shopName.toLowerCase().trim();
   return nameLower === 'durga bar' || nameLower === 'durga wines' || nameLower === 'vijaya durga wines' ||
          nameLower === 'suchitra wines' ||
@@ -332,38 +337,11 @@ export const belongsToPredefinedGroup = (shopName: string): boolean => {
 }
 
 export const getPredefinedGroupShops = (allShops: Shop[], targetShop: Shop): Shop[] => {
-  const tName = targetShop.name.toLowerCase().trim();
+  return getCombinableShops(targetShop, allShops)
+}
 
-  if (tName === 'durga bar' || tName === 'durga wines' || tName === 'vijaya durga wines') {
-    return allShops.filter(s => {
-      const name = s.name.toLowerCase().trim();
-      return name === 'durga bar' || name === 'durga wines' || name === 'vijaya durga wines';
-    });
-  }
-
-  if (tName === 'suchitra wines') {
-    return allShops.filter(s => {
-      const name = s.name.toLowerCase().trim();
-      const lmark = (s.landmark || '').toLowerCase().trim();
-      return name === 'suchitra wines' && (lmark === 'padmalaya' || lmark === 'town hall' || lmark === 'fire office' || lmark === 'fire station');
-    });
-  }
-
-  if (tName === 'satya krishna bar' || tName === 'satya krishna wines') {
-    return allShops.filter(s => {
-      const name = s.name.toLowerCase().trim();
-      return name === 'satya krishna bar' || name === 'satya krishna wines';
-    });
-  }
-
-  if (tName === 'jayaram wines' || tName === 'vasu raju wines' || tName === 'venkateswara wines') {
-    return allShops.filter(s => {
-      const name = s.name.toLowerCase().trim();
-      return name === 'jayaram wines' || name === 'vasu raju wines' || name === 'venkateswara wines';
-    });
-  }
-
-  return [];
+export const getCombinableGroupShops = (allShops: Shop[], targetShop: Shop): Shop[] => {
+  return getCombinableShops(targetShop, allShops)
 }
 
 export const generateCombinedGroupPDF = async (
