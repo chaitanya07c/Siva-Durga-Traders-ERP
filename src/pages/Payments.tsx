@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet, Trash2, Edit2 } from "lucide-react"
+import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet, Trash2, Edit2, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { addToRecycleBin } from "@/lib/recycleBin"
 import { 
@@ -18,6 +18,30 @@ import { t } from "@/lib/i18n"
 import { formatDate, getItemUnit, STANDARD_UNIT_OPTIONS, getCombinableShops } from "@/lib/utils"
 
 const formatInr = (value: number) => new Intl.NumberFormat('en-IN').format(value)
+
+const WINE_FIXED_ITEMS = ["Beer", "L.C.'s", "Full's", "Atta", "Plastic", "Nibe Box", "Beer Box"]
+const IRON_FIXED_ITEMS = ["Glass", "Beer"]
+
+const getItemName = (name: string, lang: 'en' | 'te') => {
+  if (lang === 'te') {
+    if (name === "Beer") return "బీర్"
+    if (name === "L.C.'s") return "ఎల్.సి.లు"
+    if (name === "Full's") return "ఫుల్స్"
+    if (name === "Atta") return "అట్ట"
+    if (name === "Plastic") return "ప్లాస్టిక్"
+    if (name === "Nibe Box") return "నిబ్ బాక్స్"
+    if (name === "Beer Box") return "బీర్ బాక్స్"
+    if (name === "Glass") return "గ్లాస్"
+  }
+  return name
+}
+
+const getPredefinedItemsForShop = (shop?: Shop | null): string[] => {
+  const shopType = shop?.type || 'Wine'
+  const baseItems = shopType === 'Iron' ? IRON_FIXED_ITEMS : WINE_FIXED_ITEMS
+  const extraItems = shop?.shop_rates ? Object.keys(shop.shop_rates) : []
+  return Array.from(new Set([...baseItems, ...extraItems])).filter(Boolean)
+}
 
 export function Payments() {
   const { lang } = useOutletContext<{ lang: "en" | "te" }>()
@@ -403,6 +427,19 @@ export function Payments() {
   const [editBillAdvance, setEditBillAdvance] = useState(0)
   const [editBillRemarks, setEditBillRemarks] = useState("")
   const [editBillItems, setEditBillItems] = useState<{ id?: string, name: string, quantity: number, rate: number, total: number, unit?: string }[]>([])
+  const [originalItemIds, setOriginalItemIds] = useState<string[]>([])
+
+  // Add Item states for Edit Bill
+  const [addItemMode, setAddItemMode] = useState<'existing' | 'custom'>('existing')
+  const [selectedExistingItem, setSelectedExistingItem] = useState("")
+  const [existingQty, setExistingQty] = useState<string | number>("")
+  const [existingUnit, setExistingUnit] = useState("Nos")
+  const [existingRate, setExistingRate] = useState<string | number>("")
+
+  const [customItemName, setCustomItemName] = useState("")
+  const [customQty, setCustomQty] = useState<string | number>("")
+  const [customUnit, setCustomUnit] = useState("Nos")
+  const [customRate, setCustomRate] = useState<string | number>("")
 
   const handleEditBillInitiate = (bill: BillBreakdown) => {
     setEditingBill(bill)
@@ -414,6 +451,102 @@ export function Payments() {
       ...item,
       unit: item.unit || getItemUnit(item.name, 'purchasing', bill.shop?.shop_units || bill.shop)
     })))
+    setOriginalItemIds(bill.items.map(i => i.id).filter(Boolean) as string[])
+
+    // Reset Add Item inputs
+    setAddItemMode('existing')
+    setSelectedExistingItem("")
+    setExistingQty("")
+    setExistingUnit("Nos")
+    setExistingRate("")
+    setCustomItemName("")
+    setCustomQty("")
+    setCustomUnit("Nos")
+    setCustomRate("")
+  }
+
+  const handleSelectExistingItem = (itemName: string) => {
+    setSelectedExistingItem(itemName)
+    if (itemName && editingBill) {
+      const u = getItemUnit(itemName, 'purchasing', editingBill.shop?.shop_units || editingBill.shop)
+      setExistingUnit(u)
+      const r = editingBill.shop?.shop_rates?.[itemName]
+      setExistingRate(r !== undefined && r !== null ? r : "")
+    }
+  }
+
+  const handleAddExistingItem = () => {
+    if (!selectedExistingItem) {
+      toast.error(lang === 'te' ? "దయచేసి వస్తువును ఎంచుకోండి" : "Please select an item")
+      return
+    }
+    const qty = Number(existingQty)
+    if (isNaN(qty) || qty <= 0) {
+      toast.error(lang === 'te' ? "పరిమాణం 0 కంటే ఎక్కువగా ఉండాలి" : "Quantity must be greater than 0")
+      return
+    }
+    const rate = Number(existingRate)
+    if (isNaN(rate) || rate < 0) {
+      toast.error(lang === 'te' ? "ధర ప్రతికూలంగా ఉండకూడదు" : "Rate cannot be negative")
+      return
+    }
+    const total = Number((qty * rate).toFixed(2))
+
+    setEditBillItems(prev => [
+      ...prev,
+      {
+        name: selectedExistingItem,
+        quantity: qty,
+        unit: existingUnit || getItemUnit(selectedExistingItem, 'purchasing', editingBill?.shop?.shop_units || editingBill?.shop),
+        rate: rate,
+        total: total
+      }
+    ])
+
+    setSelectedExistingItem("")
+    setExistingQty("")
+    setExistingRate("")
+    toast.success(lang === 'te' ? "వస్తువు జోడించబడింది" : "Item added to bill")
+  }
+
+  const handleAddCustomItem = () => {
+    const trimmedName = customItemName.trim()
+    if (!trimmedName) {
+      toast.error(lang === 'te' ? "దయచేసి వస్తువు పేరు ఎంటర్ చేయండి" : "Item Name is required")
+      return
+    }
+    const qty = Number(customQty)
+    if (isNaN(qty) || qty <= 0) {
+      toast.error(lang === 'te' ? "పరిమాణం 0 కంటే ఎక్కువగా ఉండాలి" : "Quantity must be greater than 0")
+      return
+    }
+    const rate = Number(customRate)
+    if (isNaN(rate) || rate < 0) {
+      toast.error(lang === 'te' ? "ధర ప్రతికూలంగా ఉండకూడదు" : "Rate cannot be negative")
+      return
+    }
+    const total = Number((qty * rate).toFixed(2))
+
+    setEditBillItems(prev => [
+      ...prev,
+      {
+        name: trimmedName,
+        quantity: qty,
+        unit: customUnit || "Nos",
+        rate: rate,
+        total: total
+      }
+    ])
+
+    setCustomItemName("")
+    setCustomQty("")
+    setCustomRate("")
+    setCustomUnit("Nos")
+    toast.success(lang === 'te' ? "కస్టమ్ వస్తువు జోడించబడింది" : "Custom item added to bill")
+  }
+
+  const handleRemoveEditBillItem = (index: number) => {
+    setEditBillItems(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleEditBillItemChange = (index: number, field: 'quantity' | 'rate' | 'unit', value: number | string) => {
@@ -435,6 +568,16 @@ export function Payments() {
       const subTotal = editBillItems.reduce((sum, item) => sum + item.total, 0)
       const grandTotal = subTotal + editBillPrevBalance - editBillAdvance
 
+      const currentPartial = editingBill.session_partial_payment || 0
+      let updatedStatus = editingBill.payment_status || 'Pending'
+      if (currentPartial > 0) {
+        if (currentPartial >= grandTotal) {
+          updatedStatus = 'Completed'
+        } else {
+          updatedStatus = 'Partial Payment'
+        }
+      }
+
       // 1. Update purchase
       const { error: purchaseError } = await supabase
         .from('purchases')
@@ -443,13 +586,28 @@ export function Payments() {
           previous_balance: editBillPrevBalance,
           advance: editBillAdvance,
           grand_total: grandTotal,
+          payment_status: updatedStatus,
           remarks: editBillRemarks
         })
         .eq('id', editingBill.id)
 
       if (purchaseError) throw purchaseError
 
-      // 2. Update purchase items
+      // 2. Fetch materials for optional ID matching
+      const { data: mats } = await supabase.from('materials').select('id, name')
+
+      // 3. Delete items removed during editing
+      const currentIds = editBillItems.map(i => i.id).filter(Boolean) as string[]
+      const deletedIds = originalItemIds.filter(id => !currentIds.includes(id))
+      if (deletedIds.length > 0) {
+        const { error: delError } = await supabase
+          .from('purchase_items')
+          .delete()
+          .in('id', deletedIds)
+        if (delError) throw delError
+      }
+
+      // 4. Update or insert purchase items
       for (const item of editBillItems) {
         if (item.id) {
           const { error: itemError } = await supabase
@@ -462,10 +620,24 @@ export function Payments() {
             })
             .eq('id', item.id)
           if (itemError) throw itemError
+        } else {
+          const matchedMat = mats?.find(m => m.name.toLowerCase() === item.name.toLowerCase())
+          const { error: insertError } = await supabase
+            .from('purchase_items')
+            .insert([{
+              purchase_id: editingBill.id,
+              material_id: matchedMat?.id || null,
+              item_name: item.name,
+              quantity: item.quantity,
+              unit: item.unit,
+              rate: item.rate,
+              total: item.total
+            }])
+          if (insertError) throw insertError
         }
       }
 
-      toast.success("Bill updated successfully!")
+      toast.success(lang === 'te' ? "బిల్లు విజయవంతంగా అప్‌డేట్ చేయబడింది!" : "Bill updated successfully!")
       setEditingBill(null)
       
       // Reload main page list/cards
@@ -867,7 +1039,7 @@ export function Payments() {
                           <div className="bg-slate-100 px-4 py-2 border-b flex justify-between items-center font-semibold">
                             <div className="flex items-center gap-2">
                               <span>Bill {globalBillCounter} {bill.billNumber ? `(#${bill.billNumber})` : ''}</span>
-                              {detailsModal.session.status === 'Pending' && (
+                              {(detailsModal.session.status === 'Pending' || detailsModal.session.status === 'Partial Payment') && (
                                 <button
                                   onClick={() => handleEditBillInitiate(bill)}
                                   className="text-blue-600 hover:text-blue-800 text-xs px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors font-bold flex items-center gap-1"
@@ -1186,27 +1358,30 @@ export function Payments() {
               <div className="space-y-2 border-t pt-3">
                 <h3 className="text-sm font-bold text-slate-800 mb-1">Items Breakdown</h3>
                 <div className="bg-slate-50 p-3 rounded-lg border space-y-3">
-                  <div className="grid grid-cols-4 gap-2 text-xs font-bold text-slate-500 border-b pb-1">
-                    <div>Item</div>
-                    <div className="text-center">Qty</div>
-                    <div className="text-center">Unit</div>
-                    <div className="text-center">Rate (₹)</div>
+                  <div className="grid grid-cols-12 gap-1 text-[11px] font-bold text-slate-500 border-b pb-1">
+                    <div className="col-span-4">Item</div>
+                    <div className="col-span-2 text-center">Qty</div>
+                    <div className="col-span-2 text-center">Unit</div>
+                    <div className="col-span-3 text-center">Rate (₹)</div>
+                    <div className="col-span-1 text-center"></div>
                   </div>
                   {editBillItems.map((item, idx) => {
                     const currentUnit = item.unit || getItemUnit(item.name, 'purchasing', editingBill.shop?.shop_units || editingBill.shop)
                     const unitOptions = Array.from(new Set([...STANDARD_UNIT_OPTIONS, currentUnit])).filter(Boolean)
                     return (
-                      <div key={idx} className="grid grid-cols-4 gap-2 items-center">
-                        <div className="text-xs font-medium text-slate-800 truncate">{item.name}</div>
+                      <div key={idx} className="grid grid-cols-12 gap-1 items-center py-0.5">
+                        <div className="col-span-4 text-xs font-medium text-slate-800 truncate" title={item.name}>{item.name}</div>
                         <input 
                           type="number"
-                          className="border p-1 rounded text-xs text-center font-medium bg-background"
+                          min="0"
+                          step="any"
+                          className="col-span-2 border p-1 rounded text-xs text-center font-medium bg-background"
                           value={item.quantity || ''}
                           onChange={e => handleEditBillItemChange(idx, 'quantity', Number(e.target.value))}
                           placeholder="0"
                         />
                         <select
-                          className="border p-1 rounded text-xs text-center font-medium bg-background cursor-pointer"
+                          className="col-span-2 border p-1 rounded text-xs text-center font-medium bg-background cursor-pointer"
                           value={currentUnit}
                           onChange={e => handleEditBillItemChange(idx, 'unit', e.target.value)}
                         >
@@ -1216,15 +1391,206 @@ export function Payments() {
                         </select>
                         <input 
                           type="number"
+                          min="0"
                           step="0.01"
-                          className="border p-1 rounded text-xs text-center font-medium bg-background"
+                          className="col-span-3 border p-1 rounded text-xs text-center font-medium bg-background"
                           value={item.rate || ''}
                           onChange={e => handleEditBillItemChange(idx, 'rate', Number(e.target.value))}
                           placeholder="0.00"
                         />
+                        <div className="col-span-1 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveEditBillItem(idx)}
+                            className="text-slate-400 hover:text-red-600 transition-colors p-1 rounded hover:bg-red-50"
+                            title="Remove Item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     )
                   })}
+                </div>
+
+                {/* Add Item Section */}
+                <div className="border border-slate-200 rounded-xl p-3 bg-white space-y-3 shadow-xs mt-3">
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                      <Plus className="w-3.5 h-3.5 text-primary" /> Add Item
+                    </span>
+                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-medium">
+                      <button
+                        type="button"
+                        onClick={() => setAddItemMode('existing')}
+                        className={`px-2.5 py-1 rounded-md transition-all ${
+                          addItemMode === 'existing' 
+                            ? 'bg-primary text-primary-foreground font-semibold shadow-xs' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Existing Item
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddItemMode('custom')}
+                        className={`px-2.5 py-1 rounded-md transition-all ${
+                          addItemMode === 'custom' 
+                            ? 'bg-primary text-primary-foreground font-semibold shadow-xs' 
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Custom Item
+                      </button>
+                    </div>
+                  </div>
+
+                  {addItemMode === 'existing' ? (
+                    <div className="space-y-2.5 text-xs">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Select Item</label>
+                          <select
+                            className="w-full border p-1.5 rounded text-xs bg-background"
+                            value={selectedExistingItem}
+                            onChange={e => handleSelectExistingItem(e.target.value)}
+                          >
+                            <option value="">-- Select Predefined Item --</option>
+                            {getPredefinedItemsForShop(editingBill.shop).map(item => (
+                              <option key={item} value={item}>{getItemName(item, lang)}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Unit</label>
+                          <select
+                            className="w-full border p-1.5 rounded text-xs bg-background cursor-pointer"
+                            value={existingUnit}
+                            onChange={e => setExistingUnit(e.target.value)}
+                          >
+                            {STANDARD_UNIT_OPTIONS.map(u => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 items-end">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Quantity</label>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            className="w-full border p-1.5 rounded text-xs"
+                            placeholder="0"
+                            value={existingQty}
+                            onChange={e => setExistingQty(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Cost / Rate (₹)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full border p-1.5 rounded text-xs"
+                            placeholder="0.00"
+                            value={existingRate}
+                            onChange={e => setExistingRate(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={handleAddExistingItem}
+                            className="w-full py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-lg text-xs transition-colors flex items-center justify-center gap-1 shadow-xs"
+                          >
+                            + Add Existing
+                          </button>
+                        </div>
+                      </div>
+                      {(Number(existingQty) > 0 && Number(existingRate) >= 0) && (
+                        <div className="text-[11px] text-right font-semibold text-slate-600 pt-0.5">
+                          Total: <span className="text-primary font-bold text-xs">₹{formatInr(Number(((Number(existingQty) || 0) * (Number(existingRate) || 0)).toFixed(2)))}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 text-xs">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Item Name</label>
+                        <input
+                          type="text"
+                          className="w-full border p-1.5 rounded text-xs"
+                          placeholder="e.g. Glass Bottle"
+                          value={customItemName}
+                          onChange={e => setCustomItemName(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Quantity</label>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            className="w-full border p-1.5 rounded text-xs"
+                            placeholder="e.g. 150"
+                            value={customQty}
+                            onChange={e => setCustomQty(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Quantity Type / Unit</label>
+                          <div className="flex gap-1">
+                            {['Nos', 'Kg'].map((u) => (
+                              <button
+                                key={u}
+                                type="button"
+                                onClick={() => setCustomUnit(u)}
+                                className={`flex-1 py-1 rounded text-xs font-semibold border transition-all ${
+                                  customUnit === u
+                                    ? 'bg-primary text-primary-foreground border-primary shadow-xs'
+                                    : 'bg-background hover:bg-slate-100 text-slate-700 border-slate-200'
+                                }`}
+                              >
+                                {u}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 items-end">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Cost / Rate (₹)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full border p-1.5 rounded text-xs"
+                            placeholder="e.g. 1.50"
+                            value={customRate}
+                            onChange={e => setCustomRate(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={handleAddCustomItem}
+                            className="w-full py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-lg text-xs transition-colors flex items-center justify-center gap-1 shadow-xs"
+                          >
+                            + Add Custom
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-right font-semibold text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        Total: <span className="text-primary font-bold text-xs">₹{formatInr(Number(((Number(customQty) || 0) * (Number(customRate) || 0)).toFixed(2)))}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

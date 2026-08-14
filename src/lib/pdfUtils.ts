@@ -14,7 +14,7 @@ export type GroupedSession = {
   date: string
   billsCount: number
   overallTotal: number
-  status: 'Pending' | 'Completed'
+  status: 'Pending' | 'Completed' | 'Partial Payment'
   bill_ids: string[]
   session_id?: string
   session_partial_payment?: number
@@ -35,6 +35,7 @@ export type BillBreakdown = {
   shop?: Shop
   session_partial_payment?: number
   payment_date?: string | null
+  payment_status?: string
 }
 
 export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' | 'te'): Promise<{shop: Shop, bills: BillBreakdown[]}> => {
@@ -78,7 +79,8 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
       shop_id: fb.shop_id,
       shop: shopObj,
       session_partial_payment: fb.session_partial_payment || 0,
-      payment_date: fb.payment_date
+      payment_date: fb.payment_date,
+      payment_status: fb.payment_status
     }
   }) || []
 

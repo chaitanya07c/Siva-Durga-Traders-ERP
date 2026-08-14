@@ -60,7 +60,8 @@ export type Purchase = {
 export type PurchaseItem = {
   id: string
   purchase_id: string
-  material_id: string
+  material_id?: string | null
+  item_name?: string | null
   quantity: number
   unit: string
   rate: number
