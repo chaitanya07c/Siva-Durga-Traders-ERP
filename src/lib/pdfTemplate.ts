@@ -354,7 +354,7 @@ export const generateProfessionalPDF = async (
       curY += 6.5
 
       // Insert Payment History subtable right before Balance Amount if history exists
-      if (hasHistory && (!rows[idx + 1] || rows[idx + 1].type === 'balance')) {
+      if (hasHistory && rows[idx + 1]?.type === 'balance') {
         // Title
         doc.setFont("helvetica", "bold")
         doc.setFontSize(9.5)
