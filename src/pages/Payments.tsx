@@ -46,7 +46,7 @@ const getPredefinedItemsForShop = (shop?: Shop | null): string[] => {
 export function Payments() {
   const { lang } = useOutletContext<{ lang: "en" | "te" }>()
   const [activeTab, setActiveTab] = useState<'Pending' | 'Completed'>('Pending')
-  const [activeCategory, setActiveCategory] = useState<'Wine' | 'Akividu Wine' | 'Iron'>('Wine')
+  const [activeCategory, setActiveCategory] = useState<'Wine' | 'Akividu Wine' | 'Iron' | 'Local Shop'>('Wine')
   const [groupedSessions, setGroupedSessions] = useState<GroupedSession[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [overallPending, setOverallPending] = useState(0)
@@ -843,10 +843,10 @@ export function Payments() {
       </div>
 
       {/* Category Tabs */}
-      <div className="flex border-b bg-card rounded-t-xl px-2 pt-2 gap-2">
+      <div className="flex border-b bg-card rounded-t-xl px-2 pt-2 gap-2 overflow-x-auto">
         <button
           onClick={() => setActiveCategory('Wine')}
-          className={`px-4 py-2 font-semibold text-sm transition-colors border-b-2 ${
+          className={`px-4 py-2 font-semibold text-sm whitespace-nowrap transition-colors border-b-2 ${
             activeCategory === 'Wine'
               ? 'border-primary text-primary'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -856,7 +856,7 @@ export function Payments() {
         </button>
         <button
           onClick={() => setActiveCategory('Akividu Wine')}
-          className={`px-4 py-2 font-semibold text-sm transition-colors border-b-2 ${
+          className={`px-4 py-2 font-semibold text-sm whitespace-nowrap transition-colors border-b-2 ${
             activeCategory === 'Akividu Wine'
               ? 'border-primary text-primary'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -866,13 +866,23 @@ export function Payments() {
         </button>
         <button
           onClick={() => setActiveCategory('Iron')}
-          className={`px-4 py-2 font-semibold text-sm transition-colors border-b-2 ${
+          className={`px-4 py-2 font-semibold text-sm whitespace-nowrap transition-colors border-b-2 ${
             activeCategory === 'Iron'
               ? 'border-primary text-primary'
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
           {lang === 'te' ? "ఐరన్ షాపులు" : "Iron Shops"}
+        </button>
+        <button
+          onClick={() => setActiveCategory('Local Shop')}
+          className={`px-4 py-2 font-semibold text-sm whitespace-nowrap transition-colors border-b-2 ${
+            activeCategory === 'Local Shop'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {lang === 'te' ? "లోకల్ షాపులు" : "Local Shops"}
         </button>
       </div>
 

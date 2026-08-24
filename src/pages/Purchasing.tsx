@@ -10,6 +10,19 @@ import { getItemUnit } from "@/lib/utils"
 
 const WINE_FIXED_ITEMS = ["Beer", "L.C.'s", "Full's", "Atta", "Plastic", "Nibe Box", "Beer Box"]
 const IRON_FIXED_ITEMS = ["Glass", "Beer"]
+const LOCAL_FIXED_ITEMS = [
+  "Beer",
+  "L.C.'s",
+  "Full's",
+  "Glass",
+  "Atta",
+  "Books",
+  "Plastic",
+  "Water Bottles",
+  "Nibe Box",
+  "Beer Box",
+  "Plastic Cover"
+]
 
 type LineItem = { name: string, quantity: number, rate: number, total: number }
 
@@ -25,6 +38,9 @@ const getItemName = (name: string, lang: 'en' | 'te') => {
     if (name === "Nibe Box") return "నిబ్ బాక్స్"
     if (name === "Beer Box") return "బీర్ బాక్స్"
     if (name === "Glass") return "గ్లాస్"
+    if (name === "Books") return "బుక్స్"
+    if (name === "Water Bottles") return "వాటర్ బాటిల్స్"
+    if (name === "Plastic Cover") return "ప్లాస్టిక్ కవర్"
   }
   return name
 }
@@ -34,7 +50,7 @@ export function Purchasing() {
   const [searchParams] = useSearchParams()
   const initialShopId = searchParams.get('shopId')
 
-  const [activeTab, setActiveTab] = useState<"Wine" | "Akividu Wine" | "Iron">("Wine")
+  const [activeTab, setActiveTab] = useState<"Wine" | "Akividu Wine" | "Iron" | "Local Shop">("Wine")
   const [shops, setShops] = useState<Shop[]>([])
   const [selectedShopId, setSelectedShopId] = useState<string>("")
   const [search, setSearch] = useState("")
@@ -87,7 +103,13 @@ export function Purchasing() {
   }, [])
 
   useEffect(() => {
-    const defaultItems = (activeTab === "Iron" ? IRON_FIXED_ITEMS : WINE_FIXED_ITEMS).map(name => ({
+    const defaultItemNames = activeTab === "Iron" 
+      ? IRON_FIXED_ITEMS 
+      : activeTab === "Local Shop" 
+      ? LOCAL_FIXED_ITEMS 
+      : WINE_FIXED_ITEMS;
+
+    const defaultItems = defaultItemNames.map(name => ({
       name, quantity: 0, rate: 0, total: 0
     }))
     setItems(defaultItems)
@@ -101,7 +123,7 @@ export function Purchasing() {
     if (initialShopId && shops.length > 0 && !savedBillId) {
       const shop = shops.find(s => s.id === initialShopId)
       if (shop) {
-        if (shop.type === "Wine" || shop.type === "Akividu Wine" || shop.type === "Iron") {
+        if (shop.type === "Wine" || shop.type === "Akividu Wine" || shop.type === "Iron" || shop.type === "Local Shop") {
           setActiveTab(shop.type as any)
           setSelectedShopId(shop.id)
         }
@@ -279,18 +301,24 @@ export function Purchasing() {
         <h1 className="text-2xl font-bold">{t("purchasing", lang)}</h1>
       </div>
 
-      <div className="flex border-b">
-        {["Wine", "Akividu Wine", "Iron"].map((tab) => (
+      <div className="flex border-b overflow-x-auto">
+        {["Wine", "Akividu Wine", "Iron", "Local Shop"].map((tab) => (
           <button
             key={tab}
             onClick={() => { setActiveTab(tab as any); setSearch(""); }}
-            className={`px-6 py-3 font-medium text-sm transition-colors ${
+            className={`px-6 py-3 font-medium text-sm whitespace-nowrap transition-colors ${
               activeTab === tab 
                 ? 'border-b-2 border-primary text-primary' 
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {tab === "Wine" ? (lang === 'te' ? "వైన్ దుకాణాలు" : "Wine Shops") : tab === "Iron" ? (lang === 'te' ? "ఐరన్ దుకాణాలు" : "Iron Shops") : (lang === 'te' ? "ఆకివీడు వైన్ దుకాణాలు" : "Akividu Wine Shops")}
+            {tab === "Wine" 
+              ? (lang === 'te' ? "వైన్ దుకాణాలు" : "Wine Shops") 
+              : tab === "Iron" 
+              ? (lang === 'te' ? "ఐరన్ దుకాణాలు" : "Iron Shops") 
+              : tab === "Akividu Wine"
+              ? (lang === 'te' ? "ఆకివీడు వైన్ దుకాణాలు" : "Akividu Wine Shops")
+              : (lang === 'te' ? "లోకల్ దుకాణాలు" : "Local Shops")}
           </button>
         ))}
       </div>

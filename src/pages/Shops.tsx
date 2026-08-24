@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import type { Shop } from "@/types/database"
-import { Plus, Search, Edit2, Trash2, History, Mic } from "lucide-react"
+import { Plus, Search, Edit2, Trash2, History, Mic, X } from "lucide-react"
 import { toast } from "sonner"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
@@ -10,13 +10,26 @@ import { DEFAULT_PURCHASE_UNITS, STANDARD_UNIT_OPTIONS, getShopEffectiveCombinab
 
 const WINE_FIXED_ITEMS = ["Beer", "L.C.'s", "Full's", "Atta", "Plastic", "Nibe Box", "Beer Box"]
 const IRON_FIXED_ITEMS = ["Glass", "Beer"]
+const LOCAL_FIXED_ITEMS = [
+  "Beer",
+  "L.C.'s",
+  "Full's",
+  "Glass",
+  "Atta",
+  "Books",
+  "Plastic",
+  "Water Bottles",
+  "Nibe Box",
+  "Beer Box",
+  "Plastic Cover"
+]
 
 export function Shops() {
   const { lang } = useOutletContext<{ lang: "en" | "te" }>()
   const [shops, setShops] = useState<Shop[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
-  const [typeFilter, setTypeFilter] = useState<"Wine" | "Akividu Wine" | "Iron">("Wine")
+  const [typeFilter, setTypeFilter] = useState<"Wine" | "Akividu Wine" | "Iron" | "Local Shop">("Wine")
   const [isListening, setIsListening] = useState(false)
 
   const handleVoiceSearch = () => {
@@ -199,13 +212,18 @@ export function Shops() {
     setEditingShop(shop)
     setShopFilterQuery("")
     const initialUnits: Record<string, string> = { ...(shop.shop_units || {}) }
-    WINE_FIXED_ITEMS.concat(IRON_FIXED_ITEMS).forEach(item => {
+    WINE_FIXED_ITEMS.concat(IRON_FIXED_ITEMS).concat(LOCAL_FIXED_ITEMS).forEach(item => {
       if (!initialUnits[item]) {
         initialUnits[item] = DEFAULT_PURCHASE_UNITS[item] || "Nos"
       }
     })
     const effectiveCombinableIds = getShopEffectiveCombinableIds(shop, shops)
-    setFormData({ ...shop, shop_rates: shop.shop_rates || {}, shop_units: initialUnits, combinable_shop_ids: effectiveCombinableIds })
+    setFormData({ 
+      ...shop, 
+      shop_rates: shop.shop_rates || {}, 
+      shop_units: initialUnits, 
+      combinable_shop_ids: effectiveCombinableIds
+    })
     setIsModalOpen(true)
   }
 
@@ -213,10 +231,15 @@ export function Shops() {
     setEditingShop(null)
     setShopFilterQuery("")
     const initialUnits: Record<string, string> = {}
-    WINE_FIXED_ITEMS.concat(IRON_FIXED_ITEMS).forEach(item => {
+    WINE_FIXED_ITEMS.concat(IRON_FIXED_ITEMS).concat(LOCAL_FIXED_ITEMS).forEach(item => {
       initialUnits[item] = DEFAULT_PURCHASE_UNITS[item] || "Nos"
     })
-    setFormData({ name: "", name_te: "", type: typeFilter, landmark: "", landmark_te: "", contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", address: "", address_te: "", marked_for_loading: false, shop_rates: {}, shop_units: initialUnits, combinable_shop_ids: [] })
+    setFormData({ 
+      name: "", name_te: "", type: typeFilter, landmark: "", landmark_te: "", 
+      contact_person: "", contact_person_te: "", mobile: "", whatsapp: "", 
+      address: "", address_te: "", marked_for_loading: false, shop_rates: {}, 
+      shop_units: initialUnits, combinable_shop_ids: [] 
+    })
     setIsModalOpen(true)
   }
 
@@ -244,6 +267,7 @@ export function Shops() {
   const getActiveItems = () => {
     if (formData.type === "Iron") return IRON_FIXED_ITEMS
     if (formData.type === "Wine" || formData.type === "Akividu Wine") return WINE_FIXED_ITEMS
+    if (formData.type === "Local Shop") return LOCAL_FIXED_ITEMS
     return []
   }
 
@@ -280,18 +304,24 @@ export function Shops() {
         </button>
       </div>
 
-      <div className="flex border-b">
-        {["Wine", "Akividu Wine", "Iron"].map((tab) => (
+      <div className="flex border-b overflow-x-auto">
+        {["Wine", "Akividu Wine", "Iron", "Local Shop"].map((tab) => (
           <button
             key={tab}
             onClick={() => setTypeFilter(tab as any)}
-            className={`px-6 py-3 font-medium text-sm transition-colors ${
+            className={`px-6 py-3 font-medium text-sm whitespace-nowrap transition-colors ${
               typeFilter === tab 
                 ? 'border-b-2 border-primary text-primary' 
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {tab === "Wine" ? (lang === 'te' ? "వైన్ దుకాణాలు" : "Wine Shops") : tab === "Iron" ? (lang === 'te' ? "ఐరన్ దుకాణాలు" : "Iron Shops") : (lang === 'te' ? "ఆకివీడు వైన్ దుకాణాలు" : "Akividu Wine Shops")}
+            {tab === "Wine" 
+              ? (lang === 'te' ? "వైన్ దుకాణాలు" : "Wine Shops") 
+              : tab === "Iron" 
+              ? (lang === 'te' ? "ఐరన్ దుకాణాలు" : "Iron Shops") 
+              : tab === "Akividu Wine"
+              ? (lang === 'te' ? "ఆకివీడు వైన్ దుకాణాలు" : "Akividu Wine Shops")
+              : (lang === 'te' ? "లోకల్ దుకాణాలు" : "Local Shops")}
           </button>
         ))}
       </div>
@@ -330,56 +360,58 @@ export function Shops() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-8">{t("loading", lang)}...</td></tr>
-              ) : filteredShops.map((shop, index) => (
-                <tr key={shop.id} className="border-b last:border-0 hover:bg-muted/50">
-                  <td className="px-4 py-3 text-muted-foreground font-medium">{index + 1}</td>
-                  <td className="px-4 py-3 font-medium">{lang === 'te' && shop.name_te ? shop.name_te : shop.name}</td>
-                  <td className="px-4 py-3">{shop.type}</td>
-                  <td className="px-4 py-3">{shop.mobile || '-'}</td>
-                  <td className="px-4 py-3">{lang === 'te' && shop.landmark_te ? shop.landmark_te : (shop.landmark || '-')}</td>
-                  <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={async () => {
-                        try {
-                          const newVal = !shop.marked_for_loading;
-                          const { error } = await supabase
-                            .from('shops')
-                            .update({ marked_for_loading: newVal })
-                            .eq('id', shop.id);
-                          if (error) throw error;
-                          toast.success(newVal ? (lang === 'te' ? "రేపటి లోడింగ్ కోసం చేర్చబడింది!" : "Marked for Tomorrow Loading!") : (lang === 'te' ? "రేపటి లోడింగ్ నుండి తొలగించబడింది!" : "Removed from Tomorrow Loading!"));
-                          fetchShops();
-                        } catch (err: any) {
-                          toast.error(err.message || "Error updating loading status");
-                        }
-                      }}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                        shop.marked_for_loading 
-                          ? 'bg-green-100 border-green-300 text-green-700 hover:bg-green-200' 
-                          : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      {shop.marked_for_loading ? (
-                        <>✓ {lang === 'te' ? "చేర్చబడింది" : "Added"}</>
-                      ) : (
-                        <>🚚 {lang === 'te' ? "రేపటి లోడింగ్" : "Tomorrow Loading"}</>
-                      )}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button onClick={() => openHistory(shop)} className="text-gray-600 hover:bg-gray-100 p-2 rounded-md mr-1" title="History">
-                      <History className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => openEdit(shop)} className="text-blue-600 hover:bg-blue-50 p-2 rounded-md mr-1" title="Edit">
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => handleDelete(shop.id)} className="text-red-600 hover:bg-red-50 p-2 rounded" title="Delete">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                <tr><td colSpan={7} className="text-center py-8">{t("loading", lang)}...</td></tr>
+              ) : filteredShops.map((shop, index) => {
+                return (
+                  <tr key={shop.id} className="border-b last:border-0 hover:bg-muted/50">
+                    <td className="px-4 py-3 text-muted-foreground font-medium">{index + 1}</td>
+                    <td className="px-4 py-3 font-medium">{lang === 'te' && shop.name_te ? shop.name_te : shop.name}</td>
+                    <td className="px-4 py-3">{shop.type}</td>
+                    <td className="px-4 py-3">{shop.mobile || '-'}</td>
+                    <td className="px-4 py-3">{lang === 'te' && shop.landmark_te ? shop.landmark_te : (shop.landmark || '-')}</td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={async () => {
+                          try {
+                            const newVal = !shop.marked_for_loading;
+                            const { error } = await supabase
+                              .from('shops')
+                              .update({ marked_for_loading: newVal })
+                              .eq('id', shop.id);
+                            if (error) throw error;
+                            toast.success(newVal ? (lang === 'te' ? "రేపటి లోడింగ్ కోసం చేర్చబడింది!" : "Marked for Tomorrow Loading!") : (lang === 'te' ? "రేపటి లోడింగ్ నుండి తొలగించబడింది!" : "Removed from Tomorrow Loading!"));
+                            fetchShops();
+                          } catch (err: any) {
+                            toast.error(err.message || "Error updating loading status");
+                          }
+                        }}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                          shop.marked_for_loading 
+                            ? 'bg-green-100 border-green-300 text-green-700 hover:bg-green-200' 
+                            : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        {shop.marked_for_loading ? (
+                          <>✓ {lang === 'te' ? "చేర్చబడింది" : "Added"}</>
+                        ) : (
+                          <>🚚 {lang === 'te' ? "రేపటి లోడింగ్" : "Tomorrow Loading"}</>
+                        )}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => openHistory(shop)} className="text-gray-600 hover:bg-gray-100 p-2 rounded-md mr-1" title="History">
+                        <History className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => openEdit(shop)} className="text-blue-600 hover:bg-blue-50 p-2 rounded-md mr-1" title="Edit">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDelete(shop.id)} className="text-red-600 hover:bg-red-50 p-2 rounded" title="Delete">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -388,7 +420,17 @@ export function Shops() {
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-background w-full max-w-2xl rounded-lg shadow-lg p-6 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">{editingShop ? t("editShop", lang) : t("addShop", lang)}</h2>
+            <div className="flex items-center justify-between mb-4 border-b pb-3">
+              <h2 className="text-xl font-bold">{editingShop ? t("editShop", lang) : t("addShop", lang)}</h2>
+              <button 
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="text-muted-foreground hover:text-foreground hover:bg-muted p-1.5 rounded-full transition-colors cursor-pointer"
+                title={lang === 'te' ? "మూసివేయి" : "Close"}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
             <form onSubmit={handleSave} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -402,10 +444,10 @@ export function Shops() {
                 <div>
                   <label className="block text-sm font-medium mb-1">{t("type", lang)} *</label>
                   <select required className="w-full border p-2 rounded" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
-                    <option value="Iron">Iron</option>
                     <option value="Wine">Wine</option>
                     <option value="Akividu Wine">Akividu Wine</option>
-                    <option value="Public">Public Supplier</option>
+                    <option value="Iron">Iron</option>
+                    <option value="Local Shop">Local Shop</option>
                   </select>
                 </div>
                 <div>
@@ -449,133 +491,6 @@ export function Shops() {
                     onChange={e => setFormData({...formData, marked_for_loading: e.target.checked})} 
                   />
                   <label htmlFor="loadingCheck" className="text-sm font-medium cursor-pointer">{t("markedForLoading", lang)}</label>
-                </div>
-
-                {/* Combined Bills Configuration Section */}
-                <div className="col-span-1 sm:col-span-2 border-t pt-4 mt-2">
-                  <label className="block text-sm font-bold text-slate-800 mb-1">
-                    {lang === 'te' ? "కంబైన్డ్ బిల్లుల షాపుల ఎంపిక (Combined Bills)" : "Combined Bills Configuration"}
-                  </label>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    {lang === 'te' 
-                      ? "ఈ షాపుతో కలిపి కంబైన్డ్ బిల్లు తయారుచేయదగిన ఇతర షాపులను ఎంచుకోండి." 
-                      : "Select which other shops can be combined with this shop."}
-                  </p>
-                  
-                  {/* Search filter inside modal */}
-                  <div className="relative mb-2">
-                    <input 
-                      type="text" 
-                      placeholder={lang === 'te' ? "షాపుల పేరు ద్వారా వెతకండి..." : "Filter shop names..."} 
-                      value={shopFilterQuery}
-                      onChange={e => setShopFilterQuery(e.target.value)}
-                      className="w-full text-xs border p-2 pl-8 rounded bg-background"
-                    />
-                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  </div>
-
-                  {/* Scrollable multi-select checkbox list prioritizing SELECTED SHOPS */}
-                  {(() => {
-                    const selectedIds = formData.combinable_shop_ids || []
-                    const candidateShops = shops
-                      .filter(s => s.id !== editingShop?.id)
-                      .filter(s => {
-                        if (!shopFilterQuery) return true
-                        const q = shopFilterQuery.toLowerCase()
-                        return s.name.toLowerCase().includes(q) || (s.landmark && s.landmark.toLowerCase().includes(q))
-                      })
-
-                    const selectedShopsList = candidateShops
-                      .filter(s => selectedIds.includes(s.id))
-                      .sort((a, b) => a.name.localeCompare(b.name))
-
-                    const unselectedShopsList = candidateShops
-                      .filter(s => !selectedIds.includes(s.id))
-                      .sort((a, b) => a.name.localeCompare(b.name))
-
-                    if (candidateShops.length === 0) {
-                      return (
-                        <div className="border rounded-lg p-3 bg-muted/20 text-center">
-                          <p className="text-xs text-muted-foreground italic py-1">No matching shops available.</p>
-                        </div>
-                      )
-                    }
-
-                    return (
-                      <div className="max-h-56 overflow-y-auto border rounded-lg p-2.5 bg-muted/20 space-y-3">
-                        {/* Selected Shops Section at Top */}
-                        {selectedShopsList.length > 0 && (
-                          <div>
-                            <div className="flex items-center justify-between px-1 mb-1.5 border-b pb-1">
-                              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                                {lang === 'te' ? "ఎంచుకున్న షాపులు" : "Selected Shops"}
-                              </span>
-                              <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                                {selectedShopsList.length}
-                              </span>
-                            </div>
-                            <div className="space-y-1 bg-emerald-50/40 p-1.5 rounded-md border border-emerald-100">
-                              {selectedShopsList.map(otherShop => (
-                                <label key={otherShop.id} className="flex items-center justify-between text-xs cursor-pointer bg-white hover:bg-emerald-50 p-1.5 rounded border border-emerald-200 shadow-sm transition-all">
-                                  <div className="flex items-center gap-2">
-                                    <input 
-                                      type="checkbox"
-                                      checked={true}
-                                      onChange={() => {
-                                        const currentIds = formData.combinable_shop_ids || []
-                                        const updatedIds = currentIds.filter(id => id !== otherShop.id)
-                                        setFormData({ ...formData, combinable_shop_ids: updatedIds })
-                                      }}
-                                      className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
-                                    />
-                                    <span className="font-bold text-slate-900">{lang === 'te' && otherShop.name_te ? otherShop.name_te : otherShop.name}</span>
-                                    {otherShop.landmark && <span className="text-[11px] text-muted-foreground">({otherShop.landmark})</span>}
-                                  </div>
-                                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">{otherShop.type}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Other Shops Section Below */}
-                        {unselectedShopsList.length > 0 && (
-                          <div>
-                            <div className="flex items-center justify-between px-1 mb-1.5 border-b pb-1">
-                              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                                {lang === 'te' ? "ఇతర షాపులు" : "Other Shops"}
-                              </span>
-                              <span className="text-[10px] font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
-                                {unselectedShopsList.length}
-                              </span>
-                            </div>
-                            <div className="space-y-1">
-                              {unselectedShopsList.map(otherShop => (
-                                <label key={otherShop.id} className="flex items-center justify-between text-xs cursor-pointer hover:bg-muted/40 p-1.5 rounded border border-border/50 transition-colors">
-                                  <div className="flex items-center gap-2">
-                                    <input 
-                                      type="checkbox"
-                                      checked={false}
-                                      onChange={() => {
-                                        const currentIds = formData.combinable_shop_ids || []
-                                        const updatedIds = [...currentIds, otherShop.id]
-                                        setFormData({ ...formData, combinable_shop_ids: updatedIds })
-                                      }}
-                                      className="w-4 h-4 accent-primary rounded cursor-pointer"
-                                    />
-                                    <span className="font-semibold text-slate-800">{lang === 'te' && otherShop.name_te ? otherShop.name_te : otherShop.name}</span>
-                                    {otherShop.landmark && <span className="text-[11px] text-muted-foreground">({otherShop.landmark})</span>}
-                                  </div>
-                                  <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">{otherShop.type}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })()}
                 </div>
               </div>
 
@@ -624,6 +539,133 @@ export function Shops() {
                   </div>
                 </div>
               )}
+
+              {/* Combined Bills Configuration Section */}
+              <div className="border-t pt-4 mt-6">
+                <label className="block text-sm font-bold text-slate-800 mb-1">
+                  {lang === 'te' ? "కంబైన్డ్ బిల్లుల షాపుల ఎంపిక (Combined Bills)" : "Combined Bills Configuration"}
+                </label>
+                <p className="text-xs text-muted-foreground mb-3">
+                  {lang === 'te' 
+                    ? "ఈ షాపుతో కలిపి కంబైన్డ్ బిల్లు తయారుచేయదగిన ఇతర షాపులను ఎంచుకోండి." 
+                    : "Select which other shops can be combined with this shop."}
+                </p>
+                
+                {/* Search filter inside modal */}
+                <div className="relative mb-2">
+                  <input 
+                    type="text" 
+                    placeholder={lang === 'te' ? "షాపుల పేరు ద్వారా వెతకండి..." : "Filter shop names..."} 
+                    value={shopFilterQuery}
+                    onChange={e => setShopFilterQuery(e.target.value)}
+                    className="w-full text-xs border p-2 pl-8 rounded bg-background"
+                  />
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                </div>
+
+                {/* Scrollable multi-select checkbox list prioritizing SELECTED SHOPS */}
+                {(() => {
+                  const selectedIds = formData.combinable_shop_ids || []
+                  const candidateShops = shops
+                    .filter(s => s.id !== editingShop?.id)
+                    .filter(s => {
+                      if (!shopFilterQuery) return true
+                      const q = shopFilterQuery.toLowerCase()
+                      return s.name.toLowerCase().includes(q) || (s.landmark && s.landmark.toLowerCase().includes(q))
+                    })
+
+                  const selectedShopsList = candidateShops
+                    .filter(s => selectedIds.includes(s.id))
+                    .sort((a, b) => a.name.localeCompare(b.name))
+
+                  const unselectedShopsList = candidateShops
+                    .filter(s => !selectedIds.includes(s.id))
+                    .sort((a, b) => a.name.localeCompare(b.name))
+
+                  if (candidateShops.length === 0) {
+                    return (
+                      <div className="border rounded-lg p-3 bg-muted/20 text-center">
+                        <p className="text-xs text-muted-foreground italic py-1">No matching shops available.</p>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="max-h-56 overflow-y-auto border rounded-lg p-2.5 bg-muted/20 space-y-3">
+                      {/* Selected Shops Section at Top */}
+                      {selectedShopsList.length > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between px-1 mb-1.5 border-b pb-1">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              {lang === 'te' ? "ఎంచుకున్న షాపులు" : "Selected Shops"}
+                            </span>
+                            <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                              {selectedShopsList.length}
+                            </span>
+                          </div>
+                          <div className="space-y-1 bg-emerald-50/40 p-1.5 rounded-md border border-emerald-100">
+                            {selectedShopsList.map(otherShop => (
+                              <label key={otherShop.id} className="flex items-center justify-between text-xs cursor-pointer bg-white hover:bg-emerald-50 p-1.5 rounded border border-emerald-200 shadow-sm transition-all">
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="checkbox"
+                                    checked={true}
+                                    onChange={() => {
+                                      const currentIds = formData.combinable_shop_ids || []
+                                      const updatedIds = currentIds.filter(id => id !== otherShop.id)
+                                      setFormData({ ...formData, combinable_shop_ids: updatedIds })
+                                    }}
+                                    className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                                  />
+                                  <span className="font-bold text-slate-900">{lang === 'te' && otherShop.name_te ? otherShop.name_te : otherShop.name}</span>
+                                  {otherShop.landmark && <span className="text-[11px] text-muted-foreground">({otherShop.landmark})</span>}
+                                </div>
+                                <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">{otherShop.type}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Other Shops Section Below */}
+                      {unselectedShopsList.length > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between px-1 mb-1.5 border-b pb-1">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                              {lang === 'te' ? "ఇతర షాపులు" : "Other Shops"}
+                            </span>
+                            <span className="text-[10px] font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+                              {unselectedShopsList.length}
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            {unselectedShopsList.map(otherShop => (
+                              <label key={otherShop.id} className="flex items-center justify-between text-xs cursor-pointer hover:bg-muted/40 p-1.5 rounded border border-border/50 transition-colors">
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="checkbox"
+                                    checked={false}
+                                    onChange={() => {
+                                      const currentIds = formData.combinable_shop_ids || []
+                                      const updatedIds = [...currentIds, otherShop.id]
+                                      setFormData({ ...formData, combinable_shop_ids: updatedIds })
+                                    }}
+                                    className="w-4 h-4 accent-primary rounded cursor-pointer"
+                                  />
+                                  <span className="font-semibold text-slate-800">{lang === 'te' && otherShop.name_te ? otherShop.name_te : otherShop.name}</span>
+                                  {otherShop.landmark && <span className="text-[11px] text-muted-foreground">({otherShop.landmark})</span>}
+                                </div>
+                                <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">{otherShop.type}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
 
               <div className="flex justify-end gap-2 mt-6">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 border rounded hover:bg-muted">{t("cancel", lang)}</button>

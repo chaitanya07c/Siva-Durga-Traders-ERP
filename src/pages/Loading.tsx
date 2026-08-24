@@ -251,7 +251,7 @@ export function Loading() {
               {renderCategory(lang === 'te' ? "వైన్ దుకాణాలు" : "Wine Shops", "Wine")}
               {renderCategory(lang === 'te' ? "ఆకివీడు వైన్ దుకాణాలు" : "Akividu Wine Shops", "Akividu Wine")}
               {renderCategory(lang === 'te' ? "ఐరన్ దుకాణాలు" : "Iron Shops", "Iron")}
-              {renderCategory(lang === 'te' ? "పబ్లిక్ సప్లయర్స్" : "Public Suppliers", "Public")}
+              {renderCategory(lang === 'te' ? "లోకల్ దుకాణాలు" : "Local Shops", "Local Shop")}
             </div>
           )}
         </div>
@@ -283,6 +283,7 @@ export function Loading() {
               <option value="Wine">{lang === 'te' ? "వైన్ దుకాణాలు" : "Wine Shops"}</option>
               <option value="Akividu Wine">{lang === 'te' ? "ఆకివీడు వైన్ దుకాణాలు" : "Akividu Wine Shops"}</option>
               <option value="Iron">{lang === 'te' ? "ఐరన్ దుకాణాలు" : "Iron Shops"}</option>
+              <option value="Local Shop">{lang === 'te' ? "లోకల్ దుకాణాలు" : "Local Shops"}</option>
             </select>
           </div>
 

@@ -218,7 +218,10 @@ export const DEFAULT_PURCHASE_UNITS: Record<string, string> = {
   "Plastic": "Kg",
   "Nibe Box": "Nos",
   "Beer Box": "Nos",
-  "Glass": "Nos"
+  "Glass": "Nos",
+  "Books": "Nos",
+  "Water Bottles": "Nos",
+  "Plastic Cover": "Nos"
 }
 
 export const STANDARD_UNIT_OPTIONS = ["Nos", "Kg", "Litres", "Box", "Packet", "Ton"]
