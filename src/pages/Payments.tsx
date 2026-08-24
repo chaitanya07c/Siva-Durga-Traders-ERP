@@ -9,11 +9,10 @@ import {
   shareWhatsApp, 
   formatQuantity,
   generateCombinedGroupPDF,
-  shareCombinedGroupWhatsApp,
-  computeCombinedPaymentSummary
+  shareCombinedGroupWhatsApp
 } from "@/lib/pdfUtils"
 import type { GroupedSession, BillBreakdown } from "@/lib/pdfUtils"
-import type { Shop, PaymentHistoryEntry } from "@/types/database"
+import type { Shop } from "@/types/database"
 import { useOutletContext } from "react-router-dom"
 import { t } from "@/lib/i18n"
 import { formatDate, getItemUnit, STANDARD_UNIT_OPTIONS, getCombinableShops } from "@/lib/utils"
@@ -79,161 +78,96 @@ export function Payments() {
   }
 
   const loadSessions = async () => {
-    const { data: freshShops } = await supabase.from('shops').select('*')
-    const currentShops = freshShops || shops
-    if (freshShops) setShops(freshShops)
-
     const { data } = await supabase
       .from('purchases')
-      .select('id, date, grand_total, advance, payment_status, shop_id, shops(name, name_te, type), session_id, session_partial_payment, payment_date, payment_history')
+      .select('id, date, grand_total, advance, payment_status, shop_id, shops(name, name_te, type), session_id, session_partial_payment, payment_date')
       .order('date', { ascending: false })
 
     if (data) {
-      // Map shop_id to combinable group key if marked for combined bill
-      const shopGroupKeyMap = new Map<string, string>()
-      currentShops.forEach(sh => {
-        if (sh.marked_for_combined_bill) {
-          const groupShops = getCombinableShops(sh, currentShops)
-          const groupKey = `combined_group_${groupShops.map(s => s.id).sort().join('_')}`
-          groupShops.forEach(gs => {
-            shopGroupKeyMap.set(gs.id, groupKey)
-          })
-        }
-      })
-
-      // 1. Group all purchase records by combined group key or session_id
-      const sessionMap = new Map<string, {
-        id: string;
+      // Calculate overall pending, completed amounts, and active advance given
+      let completedSum = 0
+      
+      const pendingGroups = new Map<string, {
+        shopName: string;
         session_id: string;
-        shop_id: string;
-        shop_name: string;
-        shop_type: string;
-        date: string;
-        billsCount: number;
-        overallTotal: number;
-        advance: number;
-        bill_ids: string[];
-        payment_date?: string | null;
-        payment_history: PaymentHistoryEntry[];
-        session_partial_payment: number;
-        status: 'Pending' | 'Partial Payment' | 'Completed';
-        remainingBalance: number;
-        totalPaid: number;
-        isCombinedGroup?: boolean;
-        shopsInGroup?: Shop[];
+        grandTotal: number;
+        partialPayment: number;
+        advanceSum: number;
+        bills: any[];
       }>()
 
       data.forEach(d => {
-        // If shop is marked for combined bill, group all its bills together
-        const isCombined = shopGroupKeyMap.has(d.shop_id)
-        const key = isCombined ? shopGroupKeyMap.get(d.shop_id)! : (d.session_id || d.id)
-
-        const grossBillAmount = Number(d.grand_total || 0) + Number(d.advance || 0)
-        const adv = Number(d.advance || 0)
-        const shopObj = currentShops.find(s => s.id === d.shop_id)
-        const rawShopName = (d.shops as any)?.name || shopObj?.name || 'Unknown'
-        const rawShopNameTe = (d.shops as any)?.name_te || shopObj?.name_te
-        const shopName = lang === 'te' && rawShopNameTe ? rawShopNameTe : rawShopName
-        const shopType = (d.shops as any)?.type || shopObj?.type || 'Unknown'
-
-        if (!sessionMap.has(key)) {
-          let groupShops: Shop[] = []
-          let displayShopName = shopName
-          if (isCombined && shopObj) {
-            groupShops = getCombinableShops(shopObj, currentShops)
-            if (groupShops.length > 1) {
-              displayShopName = `${shopObj.name} (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})`
-            }
+        if (d.payment_status === 'Completed') {
+          completedSum += Number(d.grand_total || 0)
+        } else {
+          // Pending or Partial Payment
+          const key = d.session_id || d.id
+          const shopName = (d.shops as any)?.name || 'Unknown'
+          if (!pendingGroups.has(key)) {
+            pendingGroups.set(key, {
+              shopName,
+              session_id: key,
+              grandTotal: 0,
+              partialPayment: Number(d.session_partial_payment || 0),
+              advanceSum: 0,
+              bills: []
+            })
           }
-
-          sessionMap.set(key, {
-            id: key,
-            session_id: key,
-            shop_id: d.shop_id,
-            shop_name: displayShopName,
-            shop_type: shopType,
-            date: d.date,
-            billsCount: 0,
-            overallTotal: 0,
-            advance: 0,
-            bill_ids: [],
-            payment_date: d.payment_date,
-            payment_history: [],
-            session_partial_payment: 0,
-            status: 'Pending',
-            remainingBalance: 0,
-            totalPaid: 0,
-            isCombinedGroup: isCombined && groupShops.length > 1,
-            shopsInGroup: groupShops.length > 0 ? groupShops : undefined
-          })
-        }
-
-        const s = sessionMap.get(key)!
-        s.billsCount += 1
-        s.overallTotal += grossBillAmount
-        s.advance += adv
-        s.bill_ids.push(d.id)
-        if (new Date(d.date) > new Date(s.date)) {
-          s.date = d.date
-        }
-        if (d.payment_date) {
-          s.payment_date = d.payment_date
-        }
-
-        // Collect payment history entries
-        if (Array.isArray(d.payment_history) && d.payment_history.length > 0) {
-          d.payment_history.forEach((h: any) => {
-            if (h && Number(h.amount) > 0 && h.date) {
-              if (h.remarks === "Advance Payment") return
-              const histKey = h.id || `${h.date}_${h.amount}`
-              if (!s.payment_history.some((ex: any) => (ex.id || `${ex.date}_${ex.amount}`) === histKey)) {
-                s.payment_history.push(h)
-              }
-            }
-          })
+          const g = pendingGroups.get(key)!
+          g.grandTotal += Number(d.grand_total || 0)
+          g.advanceSum += Number(d.advance || 0)
+          g.bills.push(d)
         }
       })
 
-      // 2. Compute session-level paid amount, remaining balance, and status for each session
       let pendingSum = 0
-      let completedSum = 0
       let activeAdvanceSum = 0
 
-      const allSessions: GroupedSession[] = []
-
-      sessionMap.forEach(s => {
-        s.payment_history.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        
-        const historyPaid = s.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
-        const actualPaid = historyPaid > 0 ? historyPaid : (s.session_partial_payment || 0)
-        s.session_partial_payment = actualPaid
-        s.totalPaid = s.advance + actualPaid
-        s.remainingBalance = Math.max(0, Number((s.overallTotal - s.totalPaid).toFixed(2)))
-
-        if (s.remainingBalance === 0) {
-          s.status = 'Completed'
-          completedSum += s.overallTotal
-        } else {
-          s.status = s.totalPaid > 0 ? 'Partial Payment' : 'Pending'
-          pendingSum += s.remainingBalance
-          activeAdvanceSum += s.advance
-        }
-
-        allSessions.push(s as GroupedSession)
+      pendingGroups.forEach(g => {
+        pendingSum += Math.max(0, g.grandTotal - g.partialPayment)
+        activeAdvanceSum += (g.advanceSum + g.partialPayment)
       })
 
       setOverallPending(pendingSum)
       setOverallCompleted(completedSum)
       setOverallAdvance(activeAdvanceSum)
 
-      // 3. Filter for active tab display
-      const tabSessions = allSessions.filter(s => 
+      // Filter for active tab display
+      const activeData = data.filter(d => 
         activeTab === 'Pending' 
-          ? (s.status === 'Pending' || s.status === 'Partial Payment') 
-          : s.status === 'Completed'
+          ? (d.payment_status === 'Pending' || d.payment_status === 'Partial Payment') 
+          : d.payment_status === 'Completed'
       )
 
-      setGroupedSessions(tabSessions)
+      // Group by session_id
+      const groups = new Map<string, GroupedSession>()
+      
+      activeData.forEach(d => {
+        const key = activeTab === 'Completed' ? d.shop_id : (d.session_id || d.id)
+        if (!groups.has(key)) {
+          groups.set(key, {
+            id: key,
+            session_id: activeTab === 'Completed' ? undefined : (d.session_id || d.id),
+            session_partial_payment: activeTab === 'Completed' ? 0 : (d.session_partial_payment || 0),
+            payment_date: d.payment_date,
+            shop_id: d.shop_id,
+            shop_name: lang === 'te' && (d.shops as any)?.name_te ? (d.shops as any).name_te : ((d.shops as any)?.name || 'Unknown'),
+            shop_type: (d.shops as any)?.type || 'Unknown',
+            date: d.date,
+            billsCount: 0,
+            overallTotal: 0,
+            status: activeTab,
+            bill_ids: []
+          })
+        }
+        
+        const group = groups.get(key)!
+        group.billsCount += 1
+        group.overallTotal += d.grand_total
+        group.bill_ids.push(d.id)
+      })
+
+      setGroupedSessions(Array.from(groups.values()))
     }
   }
 
@@ -247,14 +181,14 @@ export function Payments() {
   }
 
   const shouldShowCombinedToggle = (session: GroupedSession) => {
-    if (session.status === 'Completed') return false
+    if (session.status !== 'Pending') return false
     
     const shop = shops.find(s => s.id === session.shop_id)
     if (!shop) return false
     
     // Check 1: Same shop has 2 or more pending bills across all pending sessions
     const sameShopPendingBillsCount = groupedSessions
-      .filter(s => s.shop_id === session.shop_id && s.status !== 'Completed')
+      .filter(s => s.shop_id === session.shop_id && s.status === 'Pending')
       .reduce((sum, s) => sum + s.billsCount, 0)
       
     if (sameShopPendingBillsCount >= 2) {
@@ -265,7 +199,7 @@ export function Payments() {
     const groupShops = getShopsForGroup(shop)
     if (groupShops.length > 1) {
       const groupShopIds = new Set(groupShops.map(s => s.id))
-      const pendingGroupShopsCount = groupedSessions.filter(s => groupShopIds.has(s.shop_id) && s.status !== 'Completed').length
+      const pendingGroupShopsCount = groupedSessions.filter(s => groupShopIds.has(s.shop_id) && s.status === 'Pending').length
       if (pendingGroupShopsCount >= 2) {
         return true
       }
@@ -298,89 +232,93 @@ export function Payments() {
 
       const { data: shopsData } = await supabase.from('shops').select('*')
       if (shopsData) setShops(shopsData)
-      await loadSessions()
+      loadSessions()
     } catch (err: any) {
       toast.error(err.message || "Failed to update status")
     }
   }
 
   const handleCompletePaymentInitiate = async (session: GroupedSession) => {
-    const { bills } = await fetchBillBreakdowns(session, lang)
-    const summary = computeCombinedPaymentSummary(bills, session)
-    setPaymentModal({
-      ...session,
-      overallTotal: summary.overallBillAmount,
-      advance: summary.totalAdvance,
-      bill_ids: session.bill_ids,
-      payment_history: summary.paymentHistory
-    } as any)
-    setPartialPayment(summary.balance)
+    const shop = shops.find(s => s.id === session.shop_id)
+    if (shop && shop.marked_for_combined_bill) {
+      const groupShops = getShopsForGroup(shop)
+      const shopIds = groupShops.map(s => s.id)
+      const { data: groupPurchases } = await supabase
+        .from('purchases')
+        .select('id, grand_total, session_partial_payment, payment_status, bill_number, date, session_id')
+        .in('shop_id', shopIds)
+        .in('payment_status', ['Pending', 'Partial Payment'])
+        
+      if (groupPurchases && groupPurchases.length > 0) {
+        const groupBillIds = groupPurchases.map(p => p.id)
+        const overallTotal = groupPurchases.reduce((sum, p) => sum + p.grand_total, 0)
+        const totalPartialPayment = groupPurchases.reduce((sum, p) => sum + (p.session_partial_payment || 0), 0)
+
+        setPaymentModal({
+          ...session,
+          shop_name: `${shop.name}${groupShops.length > 1 ? ` (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})` : ''}`,
+          overallTotal,
+          bill_ids: groupBillIds,
+          isCombinedGroup: true,
+          shopsInGroup: groupShops
+        } as any)
+        setPartialPayment(totalPartialPayment)
+        return
+      }
+    }
+    
+    setPaymentModal(session)
+    setPartialPayment(session.session_partial_payment || 0)
   }
 
-  const handleProcessPayment = async (amountToPay: number, isFinalComplete: boolean = false) => {
+  const handleSavePartialPayment = async () => {
     if (!paymentModal) return
     try {
       const today = new Date().toISOString().split('T')[0]
-      const { bills } = await fetchBillBreakdowns(paymentModal, lang)
-      const currentSummary = computeCombinedPaymentSummary(bills, paymentModal)
-      
-      const currentBalance = currentSummary.balance
-      let actualPay = isFinalComplete ? currentBalance : Number(amountToPay || 0)
+      const newStatus = (partialPayment >= paymentModal.overallTotal) 
+        ? 'Completed' 
+        : (partialPayment > 0 ? 'Partial Payment' : 'Pending')
 
-      if (actualPay <= 0 && !isFinalComplete) {
-        toast.error("Please enter a valid payment amount")
-        return
-      }
+      const count = paymentModal.bill_ids.length || 1
+      const perBillPartial = partialPayment / count
 
-      if (actualPay > currentBalance) {
-        actualPay = currentBalance
-      }
-
-      const newBalance = Math.max(0, Number((currentBalance - actualPay).toFixed(2)))
-      const newStatus = (newBalance === 0 || isFinalComplete) ? 'Completed' : 'Partial Payment'
-
-      // Create a single payment history entry representing the actual payment transaction
-      const newEntry: PaymentHistoryEntry = {
-        id: crypto.randomUUID(),
-        date: today,
-        amount: actualPay,
-        remainingBalance: newBalance
-      }
-
-      const existingHistory = currentSummary.paymentHistory.map(h => ({
-        id: (h as any).id || crypto.randomUUID(),
-        date: h.date,
-        amount: Number(h.amount),
-        remarks: (h as any).remarks
-      }))
-
-      const updatedHistory = actualPay > 0 ? [...existingHistory, newEntry] : existingHistory
-      const totalPaidSession = currentSummary.totalActualPayments + actualPay
-
-      // Assign a shared session_id so all bills in this combined session stay linked together
-      const targetSessionId = paymentModal.session_id || paymentModal.id || `session_${crypto.randomUUID()}`
-
-      // Update all purchases in this session
-      const { error: updateError } = await supabase.from('purchases').update({
-        session_id: targetSessionId,
+      await supabase.from('purchases').update({ 
         payment_status: newStatus,
-        session_partial_payment: totalPaidSession,
-        payment_date: today,
-        payment_history: updatedHistory
+        session_partial_payment: perBillPartial, 
+        payment_date: today 
+      }).in('id', paymentModal.bill_ids)
+      
+      toast.success("Partial payment saved successfully!")
+      setPaymentModal(null)
+      loadSessions()
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save partial payment")
+    }
+  }
+
+  const handleCompletePaymentFinal = async () => {
+    if (!paymentModal) return
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const count = paymentModal.bill_ids.length || 1
+      const perBillPartial = paymentModal.overallTotal / count
+
+      await supabase.from('purchases').update({ 
+        payment_status: 'Completed', 
+        session_partial_payment: perBillPartial,
+        payment_date: today
       }).in('id', paymentModal.bill_ids)
 
-      if (updateError) throw updateError
+      // Automatically remove Combined Bill flag for all shops in the group
+      const shopIds = (paymentModal as any).shopsInGroup?.map((s: Shop) => s.id) || [paymentModal.shop_id]
+      await supabase.from('shops').update({ marked_for_combined_bill: false }).in('id', shopIds)
 
-      // Automatically remove Combined Bill flag for all shops in the group if completed
-      if (newStatus === 'Completed') {
-        const shopIds = (paymentModal as any).shopsInGroup?.map((s: Shop) => s.id) || [paymentModal.shop_id]
-        await supabase.from('shops').update({ marked_for_combined_bill: false }).in('id', shopIds)
-        const { data: shopsData } = await supabase.from('shops').select('*')
-        if (shopsData) setShops(shopsData)
-      }
+      // Reload shops state
+      const { data: shopsData } = await supabase.from('shops').select('*')
+      if (shopsData) setShops(shopsData)
 
-      toast.success(newStatus === 'Completed' ? t("paymentSaved", lang) : "Partial payment saved successfully!")
-
+      toast.success(t("paymentSaved", lang))
+      
       if ((paymentModal as any).isCombinedGroup) {
         setExportPromptSession(null)
         setGroupExportPrompt({
@@ -391,46 +329,90 @@ export function Payments() {
           date: paymentModal.date
         })
       } else {
-        const sessionToExport = { 
-          ...paymentModal, 
-          session_id: targetSessionId,
-          session_partial_payment: totalPaidSession, 
-          payment_date: today, 
-          status: newStatus as any,
-          payment_history: updatedHistory
-        }
+        const sessionToExport = { ...paymentModal, session_partial_payment: partialPayment, payment_date: today, status: 'Completed' as const }
         setExportPromptSession(sessionToExport)
       }
-
+      
       setPaymentModal(null)
-      await loadSessions()
+      loadSessions()
     } catch (err: any) {
-      toast.error(err.message || "Failed to process payment")
+      toast.error(err.message || "Failed to complete payment")
     }
-  }
-
-  const handleSavePartialPayment = async () => {
-    await handleProcessPayment(partialPayment, false)
-  }
-
-  const handleCompletePaymentFinal = async () => {
-    await handleProcessPayment(0, true)
   }
 
   const handleViewDetails = async (session: GroupedSession) => {
     try {
+      const shop = shops.find(s => s.id === session.shop_id)
+      if (shop && shop.marked_for_combined_bill) {
+        const groupShops = getShopsForGroup(shop)
+        const shopIds = groupShops.map(s => s.id)
+        const { data: purchases } = await supabase
+          .from('purchases')
+          .select('*, shops(*)')
+          .in('shop_id', shopIds)
+          .in('payment_status', ['Pending', 'Partial Payment'])
+          .order('date', { ascending: true })
+          
+        if (purchases && purchases.length > 0) {
+          const billIds = purchases.map(p => p.id)
+          const overallTotal = purchases.reduce((sum, p) => sum + p.grand_total, 0)
+          const totalPartialPayment = purchases.reduce((sum, p) => sum + (p.session_partial_payment || 0), 0)
+
+          const { data: allItems } = await supabase
+            .from('purchase_items')
+            .select('*, materials(name, name_te)')
+            .in('purchase_id', billIds)
+
+          const bills = purchases.map(fb => {
+            const itemsForBill = allItems?.filter(i => i.purchase_id === fb.id) || []
+            const shopObj = ((Array.isArray(fb.shops) ? fb.shops[0] : fb.shops) as Shop) || shop
+            const formattedItems = itemsForBill.map(i => {
+              const matName = lang === 'te' && i.materials?.name_te ? i.materials.name_te : ((i.materials as any)?.name || 'Unknown')
+              const name = i.item_name || matName
+              return {
+                id: i.id,
+                name: name,
+                quantity: i.quantity,
+                unit: getItemUnit(name, 'purchasing', shopObj?.shop_units || shopObj, i.unit),
+                rate: i.rate,
+                total: i.total
+              }
+            })
+            return {
+              id: fb.id,
+              billNumber: fb.bill_number,
+              date: fb.date,
+              items: formattedItems,
+              grandTotal: fb.grand_total,
+              previous_balance: fb.previous_balance || 0,
+              advance: fb.advance || 0,
+              remarks: fb.remarks,
+              session_id: fb.session_id || fb.id,
+              session_partial_payment: fb.session_partial_payment || 0,
+              payment_date: fb.payment_date,
+              shop_id: fb.shop_id,
+              shop: shopObj
+            }
+          })
+
+          setDetailsModal({
+            session: {
+              ...session,
+              shop_name: `${shop.name}${groupShops.length > 1 ? ` (${lang === 'te' ? 'కంబైన్డ్' : 'Combined'})` : ''}`,
+              overallTotal,
+              session_partial_payment: totalPartialPayment,
+              bill_ids: billIds,
+              isCombinedGroup: true,
+              shopsInGroup: groupShops
+            } as any,
+            bills
+          })
+          return
+        }
+      }
+      
       const { bills } = await fetchBillBreakdowns(session, lang)
-      const summary = computeCombinedPaymentSummary(bills, session)
-      setDetailsModal({ 
-        session: {
-          ...session,
-          overallTotal: summary.overallBillAmount,
-          advance: summary.totalAdvance,
-          session_partial_payment: summary.totalActualPayments,
-          payment_history: summary.paymentHistory
-        }, 
-        bills 
-      })
+      setDetailsModal({ session, bills })
     } catch (err: any) {
       toast.error("Failed to load details")
     }
@@ -586,6 +568,16 @@ export function Payments() {
       const subTotal = editBillItems.reduce((sum, item) => sum + item.total, 0)
       const grandTotal = subTotal + editBillPrevBalance - editBillAdvance
 
+      const currentPartial = editingBill.session_partial_payment || 0
+      let updatedStatus = editingBill.payment_status || 'Pending'
+      if (currentPartial > 0) {
+        if (currentPartial >= grandTotal) {
+          updatedStatus = 'Completed'
+        } else {
+          updatedStatus = 'Partial Payment'
+        }
+      }
+
       // 1. Update purchase
       const { error: purchaseError } = await supabase
         .from('purchases')
@@ -594,7 +586,7 @@ export function Payments() {
           previous_balance: editBillPrevBalance,
           advance: editBillAdvance,
           grand_total: grandTotal,
-          payment_status: editingBill.payment_status || 'Pending',
+          payment_status: updatedStatus,
           remarks: editBillRemarks
         })
         .eq('id', editingBill.id)
@@ -914,12 +906,10 @@ export function Payments() {
                     <td className="px-4 py-4">{formatDate(session.date)}</td>
                     <td className="px-4 py-4 text-right font-bold text-[15px]">₹{formatInr(session.overallTotal)}</td>
                     <td className="px-4 py-4 text-center">
-                      {session.status === 'Completed' ? (
-                        <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold">Completed</span>
-                      ) : session.status === 'Partial Payment' ? (
-                        <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-semibold">Partial Payment</span>
+                      {session.status === 'Pending' ? (
+                        <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-semibold">Pending</span>
                       ) : (
-                        <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-semibold">Pending</span>
+                        <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold">Completed</span>
                       )}
                     </td>
                     <td className="px-4 py-4">
@@ -948,7 +938,7 @@ export function Payments() {
                           <Eye className="w-3.5 h-3.5 mr-1" /> {t("viewDetails", lang)}
                         </button>
 
-                        {session.status !== 'Completed' && (
+                        {session.status === 'Pending' && (
                           <button 
                             onClick={() => handleCompletePaymentInitiate(session)} 
                             className="bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1.5 rounded shadow-sm flex items-center text-xs font-medium ml-1"
@@ -1114,65 +1104,41 @@ export function Payments() {
               })()}
               
               {/* Payment Summary */}
-              {(() => {
-                const summary = computeCombinedPaymentSummary(detailsModal.bills, detailsModal.session)
-                return (
-                  <div className="bg-card border rounded-lg overflow-hidden shadow-sm mt-6">
-                    <div className="bg-slate-100 px-4 py-2 border-b font-semibold text-center tracking-wide text-sm">
-                      PAYMENT SUMMARY
-                    </div>
-                    <div className="p-4 space-y-3">
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-muted-foreground font-medium">Status</span>
-                        <span className={`font-semibold px-2.5 py-0.5 rounded-full text-xs ${
-                          summary.status === 'Completed' ? 'bg-green-100 text-green-700' : summary.status === 'Partial Payment' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'
-                        }`}>
-                          {summary.status}
-                        </span>
-                      </div>
-                      {summary.effectivePaymentDate && (
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-muted-foreground font-medium">Payment Date</span>
-                          <span className="font-semibold text-slate-900">{formatDate(summary.effectivePaymentDate)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-muted-foreground font-medium">Overall Bill Amount</span>
-                        <span className="font-semibold text-slate-900">₹{formatInr(summary.overallBillAmount)}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-muted-foreground font-medium">Advance Amount</span>
-                        <span className="font-semibold text-purple-700">₹{formatInr(summary.totalAdvance)}</span>
-                      </div>
-                      
-                      {/* Payment History Subtable */}
-                      {summary.paymentHistory.length > 0 && (
-                        <div className="border rounded-lg overflow-hidden my-2">
-                          <div className="bg-slate-50 px-3 py-1.5 border-b font-semibold text-xs text-slate-700 flex justify-between">
-                            <span>Payment Date</span>
-                            <span>Amount Paid</span>
-                          </div>
-                          <div className="divide-y text-xs">
-                            {summary.paymentHistory.map((h, i) => (
-                              <div key={i} className="px-3 py-1.5 flex justify-between items-center bg-white">
-                                <span className="text-slate-600">{formatDate(h.date)}</span>
-                                <span className="font-semibold text-green-600">₹{formatInr(h.amount)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex justify-between items-center pt-3 border-t">
-                        <span className="font-bold text-slate-900">Balance Amount</span>
-                        <span className={`font-bold text-lg ${summary.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                          ₹{formatInr(summary.balance)}
-                        </span>
-                      </div>
-                    </div>
+              {((detailsModal.session.session_partial_payment || 0) > 0 || detailsModal.session.status === 'Completed') && (
+                <div className="bg-card border rounded-lg overflow-hidden shadow-sm mt-6">
+                  <div className="bg-slate-100 px-4 py-2 border-b font-semibold text-center tracking-wide text-sm">
+                    PAYMENT SUMMARY
                   </div>
-                )
-              })()}
+                  <div className="p-4 space-y-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground font-medium">Status</span>
+                      <span className="font-semibold text-slate-900">{detailsModal.session.status === 'Completed' ? 'Completed' : 'Partial Payment'}</span>
+                    </div>
+                    {detailsModal.session.payment_date && (
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-muted-foreground font-medium">Payment Date</span>
+                        <span className="font-semibold text-slate-900">{formatDate(detailsModal.session.payment_date)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground font-medium">Overall Bill Amount</span>
+                      <span className="font-semibold text-slate-900">₹{formatInr(detailsModal.session.overallTotal)}</span>
+                    </div>
+                    {detailsModal.session.overallTotal - (detailsModal.session.session_partial_payment || 0) > 0 ? (
+                      <>
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-muted-foreground font-medium">Partial Amount Paid</span>
+                          <span className="font-semibold text-green-600">₹{formatInr(detailsModal.session.session_partial_payment || 0)}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-3 border-t">
+                          <span className="font-bold text-slate-900">Balance Amount</span>
+                          <span className="font-bold text-red-600 text-lg">₹{formatInr(detailsModal.session.overallTotal - (detailsModal.session.session_partial_payment || 0))}</span>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="p-4 border-t sticky bottom-0 bg-background flex flex-wrap justify-end gap-2">
@@ -1236,90 +1202,62 @@ export function Payments() {
       )}
 
       {/* Payment Completion Modal */}
-      {paymentModal && (() => {
-        const modalOverall = paymentModal.overallTotal || 0
-        const modalAdvance = (paymentModal as any).advance || 0
-        const modalHistory = (paymentModal as any).payment_history || []
-        const totalPaidPrior = modalHistory.reduce((sum: number, h: any) => sum + Number(h.amount || 0), 0)
-        const currentBalanceDue = Math.max(0, modalOverall - modalAdvance - totalPaidPrior)
-        const balanceAfterInput = Math.max(0, currentBalanceDue - (partialPayment || 0))
-
-        return (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-            <div className="bg-background w-full max-w-md rounded-2xl shadow-xl overflow-hidden">
-              <div className="p-5 border-b bg-slate-50">
-                <h2 className="text-xl font-bold text-center">Payment Summary</h2>
-                <p className="text-sm text-center text-muted-foreground">{paymentModal.shop_name} • {paymentModal.date}</p>
+      {paymentModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-background w-full max-w-md rounded-2xl shadow-xl overflow-hidden">
+            <div className="p-5 border-b bg-slate-50">
+              <h2 className="text-xl font-bold text-center">Payment Summary</h2>
+              <p className="text-sm text-center text-muted-foreground">{paymentModal.shop_name} • {paymentModal.date}</p>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div className="flex justify-between items-center pb-4 border-b">
+                <span className="font-medium text-slate-700">Overall Bill Amount</span>
+                <span className="text-xl font-bold text-primary">₹{formatInr(paymentModal.overallTotal)}</span>
               </div>
               
-              <div className="p-6 space-y-4">
-                <div className="flex justify-between items-center pb-2 border-b text-sm">
-                  <span className="font-medium text-slate-700">Overall Bill Amount</span>
-                  <span className="text-lg font-bold text-slate-900">₹{formatInr(modalOverall)}</span>
-                </div>
-
-                {modalAdvance > 0 && (
-                  <div className="flex justify-between items-center pb-2 border-b text-sm">
-                    <span className="font-medium text-slate-700">Advance Amount</span>
-                    <span className="text-sm font-semibold text-purple-700">₹{formatInr(modalAdvance)}</span>
-                  </div>
-                )}
-
-                {totalPaidPrior > 0 && (
-                  <div className="flex justify-between items-center pb-2 border-b text-sm">
-                    <span className="font-medium text-slate-700">Previous Payments Paid</span>
-                    <span className="text-sm font-semibold text-green-600">₹{formatInr(totalPaidPrior)}</span>
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center pb-2 border-b text-sm bg-slate-50 p-2 rounded">
-                  <span className="font-bold text-slate-800">Current Balance Due</span>
-                  <span className="text-base font-bold text-primary">₹{formatInr(currentBalanceDue)}</span>
-                </div>
-                
-                <div className="space-y-1.5 pt-2">
-                  <label className="block font-medium text-xs text-slate-700">Payment Amount To Pay (₹)</label>
-                  <input 
-                    type="number" 
-                    className="w-full border p-2.5 rounded-lg text-lg font-semibold bg-background"
-                    value={partialPayment || ''}
-                    onChange={e => setPartialPayment(Number(e.target.value))}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div className="flex justify-between items-center pt-3 border-t bg-slate-50 p-3 rounded-lg">
-                  <span className="font-bold text-slate-700 text-sm">Remaining Balance</span>
-                  <span className={`text-lg font-bold ${balanceAfterInput > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    ₹{formatInr(balanceAfterInput)}
-                  </span>
-                </div>
+              <div className="space-y-2">
+                <label className="block font-medium text-sm text-slate-700">Partial Amount Paid (₹)</label>
+                <input 
+                  type="number" 
+                  className="w-full border p-3 rounded-lg text-lg font-semibold"
+                  value={partialPayment || ''}
+                  onChange={e => setPartialPayment(Number(e.target.value))}
+                  placeholder="0"
+                />
               </div>
 
-              <div className="p-4 border-t flex flex-col gap-2 bg-slate-50">
-                <button 
-                  onClick={handleSavePartialPayment} 
-                  className="w-full bg-orange-100 text-orange-700 py-2.5 rounded-xl font-semibold hover:bg-orange-200 transition-colors text-sm"
-                >
-                  Save Partial Payment
-                </button>
-                <button 
-                  onClick={handleCompletePaymentFinal} 
-                  className="w-full bg-primary text-primary-foreground py-2.5 rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-sm flex justify-center items-center text-sm"
-                >
-                  <CheckCircle2 className="w-4 h-4 mr-2" /> Complete Payment (₹{formatInr(currentBalanceDue)})
-                </button>
-                <button 
-                  onClick={() => setPaymentModal(null)} 
-                  className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-700 font-medium mt-0.5"
-                >
-                  Cancel
-                </button>
+              <div className="flex justify-between items-center pt-4 border-t bg-slate-50 p-4 rounded-lg">
+                <span className="font-bold text-slate-700">Balance Amount</span>
+                <span className={`text-xl font-bold ${paymentModal.overallTotal - partialPayment > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  ₹{formatInr(Math.max(0, paymentModal.overallTotal - partialPayment))}
+                </span>
               </div>
             </div>
+
+            <div className="p-4 border-t flex flex-col gap-2 bg-slate-50">
+              <button 
+                onClick={handleSavePartialPayment} 
+                className="w-full bg-orange-100 text-orange-700 py-3 rounded-xl font-semibold hover:bg-orange-200 transition-colors"
+              >
+                Save Partial Payment
+              </button>
+              <button 
+                onClick={handleCompletePaymentFinal} 
+                className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors shadow-sm flex justify-center items-center"
+              >
+                <CheckCircle2 className="w-5 h-5 mr-2" /> Complete Payment
+              </button>
+              <button 
+                onClick={() => setPaymentModal(null)} 
+                className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium mt-1"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-        )
-      })()}
+        </div>
+      )}
 
       {/* Post-Completion Export Prompt */}
       {exportPromptSession && (
