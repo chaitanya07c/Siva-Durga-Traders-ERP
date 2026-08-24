@@ -268,21 +268,27 @@ export const generateProfessionalPDF = async (
       // 1. COMPLETED
       rows.push({ label: "Status", type: 'status', val: "Completed" })
       rows.push({ label: "Payment Date", type: 'date', val: formatDate(effectiveDateStr), dividerAfter: true })
-      rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall })
-      rows.push({ label: "Advance Amount", type: 'advance', val: advance, dividerAfter: paymentHistory.length === 0 })
+      rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall, dividerAfter: advance <= 0 && paymentHistory.length === 0 })
+      if (advance > 0) {
+        rows.push({ label: "Advance Amount", type: 'advance', val: advance, dividerAfter: paymentHistory.length === 0 })
+      }
       rows.push({ label: "Balance Amount", type: 'balance', val: balance })
     } else if (isPending && totalReceivedSoFar === 0) {
       // 2. PENDING
       rows.push({ label: "Status", type: 'status', val: "Pending", dividerAfter: true })
-      rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall })
-      rows.push({ label: "Advance Amount", type: 'advance', val: advance, dividerAfter: true })
+      rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall, dividerAfter: advance <= 0 })
+      if (advance > 0) {
+        rows.push({ label: "Advance Amount", type: 'advance', val: advance, dividerAfter: true })
+      }
       rows.push({ label: "Balance Amount", type: 'balance', val: balance })
     } else {
       // 3. PARTIAL PAYMENT
       rows.push({ label: "Status", type: 'status', val: "Partial Payment" })
       rows.push({ label: "Payment Date", type: 'date', val: formatDate(effectiveDateStr), dividerAfter: true })
-      rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall })
-      rows.push({ label: "Advance Amount", type: 'advance', val: advance, dividerAfter: paymentHistory.length === 0 })
+      rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall, dividerAfter: advance <= 0 && paymentHistory.length === 0 })
+      if (advance > 0) {
+        rows.push({ label: "Advance Amount", type: 'advance', val: advance, dividerAfter: paymentHistory.length === 0 })
+      }
       rows.push({ label: "Balance Amount", type: 'balance', val: balance })
     }
 
@@ -348,7 +354,7 @@ export const generateProfessionalPDF = async (
       curY += 6.5
 
       // Insert Payment History subtable right before Balance Amount if history exists
-      if (hasHistory && row.type === 'advance' && (!rows[idx + 1] || rows[idx + 1].type === 'balance')) {
+      if (hasHistory && (!rows[idx + 1] || rows[idx + 1].type === 'balance')) {
         // Title
         doc.setFont("helvetica", "bold")
         doc.setFontSize(9.5)
