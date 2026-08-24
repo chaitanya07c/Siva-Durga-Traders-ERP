@@ -31,7 +31,7 @@ export type PDFDocumentData = {
     status: string
     paymentDate?: string | null
     completedDate?: string | null
-    paymentHistory?: { date: string, amount: number, remarks?: string }[]
+    paymentHistory?: { date: string, amount: number, remarks?: string | null }[]
   }
   filename: string
 }
@@ -244,11 +244,13 @@ export const generateProfessionalPDF = async (
     const isCompleted = statusStr === 'Completed' || statusStr === 'Completed Paid'
     
     const advance = data.paymentSummary.advanceAmount || 0
-    const partialPaid = data.paymentSummary.partialPaid || 0
-    const totalReceivedSoFar = advance + partialPaid
-    const balance = data.paymentSummary.balanceAmount || 0
+    const balance = Math.max(0, data.paymentSummary.balanceAmount || 0)
     const overall = data.paymentSummary.overallAmount || 0
-    const paymentHistory = data.paymentSummary.paymentHistory || []
+    const paymentHistory = (data.paymentSummary.paymentHistory || []).filter(h => h && Number(h.amount) > 0)
+    
+    const totalPayments = paymentHistory.reduce((sum, h) => sum + (Number(h.amount) || 0), 0)
+    const partialPaid = data.paymentSummary.partialPaid || totalPayments
+    const totalReceivedSoFar = advance + (totalPayments > 0 ? totalPayments : partialPaid)
     
     const isPending = statusStr === 'Pending' || (!isCompleted && totalReceivedSoFar === 0 && balance > 0)
 
@@ -260,33 +262,31 @@ export const generateProfessionalPDF = async (
     }
 
     const rows: SummaryRow[] = []
+    const effectiveDateStr = data.paymentSummary.paymentDate || data.paymentSummary.completedDate || (paymentHistory.length > 0 ? paymentHistory[paymentHistory.length - 1].date : new Date().toISOString().split('T')[0])
 
     if (isCompleted) {
       // 1. COMPLETED
       rows.push({ label: "Status", type: 'status', val: "Completed" })
-      const compDateStr = data.paymentSummary.completedDate || data.paymentSummary.paymentDate || new Date().toISOString().split('T')[0]
-      rows.push({ label: "Completed Date", type: 'date', val: formatDate(compDateStr), dividerAfter: true })
+      rows.push({ label: "Payment Date", type: 'date', val: formatDate(effectiveDateStr), dividerAfter: true })
       rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall })
+      rows.push({ label: "Advance Amount", type: 'advance', val: advance, dividerAfter: paymentHistory.length === 0 })
+      rows.push({ label: "Balance Amount", type: 'balance', val: balance })
     } else if (isPending && totalReceivedSoFar === 0) {
       // 2. PENDING
       rows.push({ label: "Status", type: 'status', val: "Pending", dividerAfter: true })
-      rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall, dividerAfter: true })
+      rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall })
+      rows.push({ label: "Advance Amount", type: 'advance', val: advance, dividerAfter: true })
       rows.push({ label: "Balance Amount", type: 'balance', val: balance })
     } else {
-      // 3. PARTIAL PAYMENT (Single Advance Amount row showing total received so far)
-      const lastDate = paymentHistory.length > 0 
-        ? paymentHistory[paymentHistory.length - 1].date 
-        : (data.paymentSummary.paymentDate || new Date().toISOString().split('T')[0])
-
+      // 3. PARTIAL PAYMENT
       rows.push({ label: "Status", type: 'status', val: "Partial Payment" })
-      rows.push({ label: "Payment Date", type: 'date', val: formatDate(lastDate), dividerAfter: true })
-
+      rows.push({ label: "Payment Date", type: 'date', val: formatDate(effectiveDateStr), dividerAfter: true })
       rows.push({ label: "Overall Bill Amount", type: 'overall', val: overall })
-      rows.push({ label: "Advance Amount", type: 'advance', val: totalReceivedSoFar, dividerAfter: true })
+      rows.push({ label: "Advance Amount", type: 'advance', val: advance, dividerAfter: paymentHistory.length === 0 })
       rows.push({ label: "Balance Amount", type: 'balance', val: balance })
     }
 
-    const hasHistory = !isCompleted && !isPending && paymentHistory.length > 1
+    const hasHistory = paymentHistory.length > 0
     const N = paymentHistory.length
     const historyRowsHeight = hasHistory ? ((2 + N) * 6.5) : 0
     const summaryHeight = 7 + (rows.length * 6.5) + historyRowsHeight

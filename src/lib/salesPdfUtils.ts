@@ -32,6 +32,7 @@ export type SalesBillBreakdown = {
   remarks?: string | null
   partial_payment?: number
   payment_date?: string | null
+  payment_status?: 'Pending' | 'Partial Payment' | 'Completed'
   payment_history?: { date: string, amount: number, remainingBalance?: number, remarks?: string }[]
 }
 
@@ -65,11 +66,21 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
       remarks: fb.remarks,
       partial_payment: fb.partial_payment,
       payment_date: fb.payment_date,
+      payment_status: fb.payment_status,
       payment_history: fb.payment_history || []
     }
   }) || []
 
   return reconstructedBills
+}
+
+const isValidFieldValue = (val: unknown): val is string => {
+  if (val === null || val === undefined) return false
+  const str = String(val).trim()
+  if (!str) return false
+  if (str === '-' || str === '--' || str === '---' || str === 'N/A' || str === 'n/a') return false
+  if (str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined' || str.toLowerCase() === 'unknown') return false
+  return true
 }
 
 // Header is imported from pdfTemplate
@@ -88,53 +99,61 @@ export const generateSalesCombinedPDF = async (
     }
     
     const totalAdvance = session.advance !== undefined ? session.advance : bills.reduce((sum, b) => sum + (b.advance || 0), 0)
-    const additionalPayments = session.partial_payment || 0
-    const totalPaid = totalAdvance + additionalPayments
-    const balance = Math.max(0, session.overallTotal - totalPaid)
 
-    let paymentStatus = "Pending"
-    if (session.status === 'Completed' || balance === 0) {
-      paymentStatus = "Completed"
-    } else if (totalPaid > 0) {
-      paymentStatus = "Partial Paid"
+    // Consolidate payment history from bills and session
+    const historyMap = new Map<string, { date: string, amount: number, remarks?: string }>()
+    
+    // Check session.payment_history first
+    if (Array.isArray(session.payment_history) && session.payment_history.length > 0) {
+      session.payment_history.forEach(h => {
+        if (h && Number(h.amount) > 0 && h.date) {
+          if (h.remarks === "Advance Payment") return
+          const key = (h as any).id || `${h.date}_${h.amount}`
+          if (!historyMap.has(key)) {
+            historyMap.set(key, { date: h.date, amount: Number(h.amount), remarks: h.remarks })
+          }
+        }
+      })
     }
 
-    // Consolidate payment history from bills
-    const historyList: { date: string, amount: number, remarks?: string }[] = []
     bills.forEach(b => {
-      let hasAdvanceInHistory = false
       if (Array.isArray(b.payment_history) && b.payment_history.length > 0) {
         b.payment_history.forEach(h => {
-          if (h.amount > 0 && h.date) {
-            if (h.remarks === "Advance Payment" || (b.advance && h.amount === b.advance)) {
-              hasAdvanceInHistory = true
+          if (h && Number(h.amount) > 0 && h.date) {
+            if (h.remarks === "Advance Payment") return
+            const key = (h as any).id || `${h.date}_${h.amount}`
+            if (!historyMap.has(key)) {
+              historyMap.set(key, { date: h.date, amount: Number(h.amount), remarks: h.remarks })
             }
-            historyList.push({ date: h.date, amount: h.amount, remarks: h.remarks })
           }
-        })
-      }
-
-      if (!hasAdvanceInHistory && b.advance && b.advance > 0) {
-        historyList.unshift({
-          date: b.date,
-          amount: b.advance,
-          remarks: "Advance Payment"
         })
       }
     })
 
-    // Fallback if payment history array was not present but additional payment was made
-    if (historyList.length === 0 && totalPaid > 0) {
-      if (totalAdvance > 0) {
-        historyList.push({ date: session.date, amount: totalAdvance, remarks: "Advance Payment" })
-      }
-      if (additionalPayments > 0) {
-        historyList.push({ date: session.payment_date || session.date, amount: additionalPayments })
-      }
+    const historyList = Array.from(historyMap.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    const totalActualPayments = historyList.reduce((sum, h) => sum + Number(h.amount || 0), 0)
+    const additionalPayments = totalActualPayments > 0 ? totalActualPayments : (session.partial_payment || 0)
+    const totalPaid = totalAdvance + additionalPayments
+    const balance = Math.max(0, Number((session.overallTotal - totalPaid).toFixed(2)))
+
+    let paymentStatus = "Pending"
+    if (balance === 0) {
+      paymentStatus = "Completed"
+    } else if (totalPaid > 0) {
+      paymentStatus = "Partial Paid"
+    } else {
+      paymentStatus = "Pending"
     }
 
-    // Sort ascending by date
-    const sortedHistory = historyList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    if (totalAdvance > 0) {
+      historyList.unshift({
+        date: session.date,
+        amount: totalAdvance,
+        remarks: "Advance Payment"
+      })
+    }
+
+    const sortedHistory = historyList
 
     const latestDateFromBills = bills.map(b => b.payment_date).filter(Boolean).sort((a, b) => new Date(b!).getTime() - new Date(a!).getTime())[0]
     const latestDateFromHistory = sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1].date : null
@@ -142,31 +161,48 @@ export const generateSalesCombinedPDF = async (
 
     // Fetch buyer phone number if available
     let buyerMobile: string | null = null
-    if (session.buyer_name) {
-      const { data: bData } = await supabase.from('buyers').select('mobile').eq('name', session.buyer_name).maybeSingle()
-      if (bData && bData.mobile) {
-        buyerMobile = bData.mobile
+    if (isValidFieldValue(session.buyer_name)) {
+      const { data: bData } = await supabase.from('buyers').select('mobile').eq('name', session.buyer_name.trim()).maybeSingle()
+      if (bData && isValidFieldValue(bData.mobile)) {
+        buyerMobile = bData.mobile.trim()
       }
     }
+
+    const safeBuyerName = isValidFieldValue(session.buyer_name) ? session.buyer_name.trim() : 'Buyer'
 
     const documentData: PDFDocumentData = {
       title: "SALES INVOICE",
       subHeader: lang === 'te' ? "విస్సాకోడేరు బ్రిడ్జ్ దగ్గర, భీమవరం[534201]." : "NEAR VISSAKODERU BRIDGE, BHIMAVARAM[534201].",
-      filename: `${session.buyer_name || 'Buyer'}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
+      filename: `${safeBuyerName}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
       bills: bills.map(bill => {
-        const metadataLeft = [
-          `Buyer Name: ${session.buyer_name || 'Unknown'}`,
-          ...(buyerMobile ? [`Phone No: ${buyerMobile}`] : []),
-          `Vehicle No: ${bill.vehicleNumber || '-'}`,
-          `Driver Name: ${bill.driverName || '-'}`,
-          `Driver Phone: ${bill.driverPhone || '-'}`,
-          `Remarks: ${bill.remarks || '-'}`
-        ]
-        
-        const metadataRight = [
-          `Invoice No: #${bill.invoiceNumber || ''}`,
-          `Date: ${formatDate(bill.date)}`
-        ]
+        const metadataLeft: string[] = []
+
+        if (isValidFieldValue(session.buyer_name)) {
+          metadataLeft.push(`Buyer Name: ${session.buyer_name.trim()}`)
+        }
+        if (isValidFieldValue(buyerMobile)) {
+          metadataLeft.push(`Phone No: ${buyerMobile.trim()}`)
+        }
+        if (isValidFieldValue(bill.vehicleNumber)) {
+          metadataLeft.push(`Vehicle No: ${bill.vehicleNumber!.trim()}`)
+        }
+        if (isValidFieldValue(bill.driverName)) {
+          metadataLeft.push(`Driver Name: ${bill.driverName!.trim()}`)
+        }
+        if (isValidFieldValue(bill.driverPhone)) {
+          metadataLeft.push(`Driver Phone: ${bill.driverPhone!.trim()}`)
+        }
+        if (isValidFieldValue(bill.remarks)) {
+          metadataLeft.push(`Remarks: ${bill.remarks!.trim()}`)
+        }
+
+        const metadataRight: string[] = []
+        if (isValidFieldValue(bill.invoiceNumber)) {
+          metadataRight.push(`Invoice No: #${bill.invoiceNumber!.trim()}`)
+        }
+        if (isValidFieldValue(bill.date)) {
+          metadataRight.push(`Date: ${formatDate(bill.date)}`)
+        }
 
         const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map((i: any) => ({
           name: i.name,
@@ -219,9 +255,10 @@ export const shareSalesWhatsApp = async (
       return
     }
 
+    const safeBuyerName = isValidFieldValue(session?.buyer_name) ? session.buyer_name.trim() : 'Buyer'
     const file = new File(
       [pdfBlob],
-      `${session?.buyer_name || 'Buyer'}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
+      `${safeBuyerName}_${formatFilenameDate(session.date || session.payment_date)}.pdf`,
       { type: "application/pdf" }
     )
 

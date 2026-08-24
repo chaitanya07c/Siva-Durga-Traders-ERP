@@ -67,117 +67,191 @@ export function SalesPayments() {
       .order('date', { ascending: false })
 
     if (data) {
-      // Calculate overall pending, completed, and active advance amounts
       let pendingSum = 0
       let completedSum = 0
       let activeAdvanceSum = 0
 
-      data.forEach(d => {
-        const adv = Number(d.advance || 0)
-        const additionalPaid = Number(d.partial_payment || 0)
-        const totalPaid = adv + additionalPaid
-        const grandTotal = Number(d.total_amount || 0)
-        const rem = Math.max(0, grandTotal - totalPaid)
+      // Groups for Active Pending sessions (grouped strictly by buyer_name for pending/partially paid bills)
+      const pendingMap = new Map<string, {
+        id: string;
+        buyer_name: string;
+        date: string;
+        billsCount: number;
+        overallTotal: number;
+        advance: number;
+        bill_ids: string[];
+        partial_payment: number;
+        payment_date?: string | null;
+        payment_history: { id?: string, date: string, amount: number, remainingBalance?: number, remarks?: string }[];
+        status: 'Pending' | 'Partial Payment' | 'Completed';
+        remainingBalance: number;
+        totalPaid: number;
+      }>()
 
-        if (d.payment_status === 'Completed' || rem === 0) {
-          completedSum += grandTotal
+      // Groups for Completed sessions (grouped by buyer_name + completion batch / date)
+      const completedMap = new Map<string, {
+        id: string;
+        buyer_name: string;
+        date: string;
+        billsCount: number;
+        overallTotal: number;
+        advance: number;
+        bill_ids: string[];
+        partial_payment: number;
+        payment_date?: string | null;
+        payment_history: { id?: string, date: string, amount: number, remainingBalance?: number, remarks?: string }[];
+        status: 'Pending' | 'Partial Payment' | 'Completed';
+        remainingBalance: number;
+        totalPaid: number;
+      }>()
+
+      data.forEach(d => {
+        const rawName = d.buyer_name || 'Unknown Buyer'
+        const displayName = lang === 'te' && buyerMap.has(rawName) ? buyerMap.get(rawName)! : rawName
+        const billAmount = Number(d.total_amount || 0)
+        const adv = Number(d.advance || 0)
+        const isCompleted = d.payment_status === 'Completed'
+
+        if (isCompleted) {
+          completedSum += billAmount
+          // Group completed bills that were completed together
+          const batchKey = (Array.isArray(d.payment_history) && d.payment_history.length > 0)
+            ? (d.payment_history[d.payment_history.length - 1] as any).id || `${d.payment_date || d.date}_${d.payment_history.length}`
+            : (d.payment_date ? `${d.payment_date}_${d.partial_payment || 0}` : d.id)
+          const key = `comp_${rawName}_${batchKey}`
+
+          if (!completedMap.has(key)) {
+            completedMap.set(key, {
+              id: key,
+              buyer_name: displayName,
+              date: d.date,
+              billsCount: 0,
+              overallTotal: 0,
+              advance: 0,
+              bill_ids: [],
+              partial_payment: 0,
+              payment_date: d.payment_date,
+              payment_history: [],
+              status: 'Completed',
+              remainingBalance: 0,
+              totalPaid: 0
+            })
+          }
+
+          const s = completedMap.get(key)!
+          s.billsCount += 1
+          s.overallTotal += billAmount
+          s.advance += adv
+          s.bill_ids.push(d.id)
+          if (new Date(d.date) > new Date(s.date)) {
+            s.date = d.date
+          }
+          if (d.payment_date && (!s.payment_date || new Date(d.payment_date) > new Date(s.payment_date))) {
+            s.payment_date = d.payment_date
+          }
+
+          if (Array.isArray(d.payment_history) && d.payment_history.length > 0) {
+            d.payment_history.forEach((h: any) => {
+              if (h && Number(h.amount) > 0 && h.date) {
+                if (h.remarks === "Advance Payment") return
+                const histKey = h.id || `${h.date}_${h.amount}`
+                if (!s.payment_history.some((ex: any) => (ex.id || `${ex.date}_${ex.amount}`) === histKey)) {
+                  s.payment_history.push(h)
+                }
+              }
+            })
+          }
         } else {
-          pendingSum += rem
-          activeAdvanceSum += (adv + additionalPaid)
+          // ACTIVE PENDING / PARTIAL PAYMENT BILLS
+          // Only pending bills are grouped together! Previously completed bills are strictly excluded!
+          const key = `pend_${rawName}`
+
+          if (!pendingMap.has(key)) {
+            pendingMap.set(key, {
+              id: key,
+              buyer_name: displayName,
+              date: d.date,
+              billsCount: 0,
+              overallTotal: 0,
+              advance: 0,
+              bill_ids: [],
+              partial_payment: 0,
+              payment_date: d.payment_date,
+              payment_history: [],
+              status: 'Pending',
+              remainingBalance: 0,
+              totalPaid: 0
+            })
+          }
+
+          const s = pendingMap.get(key)!
+          s.billsCount += 1
+          s.overallTotal += billAmount
+          s.advance += adv
+          s.bill_ids.push(d.id)
+          if (new Date(d.date) > new Date(s.date)) {
+            s.date = d.date
+          }
+          if (d.payment_date && (!s.payment_date || new Date(d.payment_date) > new Date(s.payment_date))) {
+            s.payment_date = d.payment_date
+          }
+
+          if (Array.isArray(d.payment_history) && d.payment_history.length > 0) {
+            d.payment_history.forEach((h: any) => {
+              if (h && Number(h.amount) > 0 && h.date) {
+                if (h.remarks === "Advance Payment") return
+                const histKey = h.id || `${h.date}_${h.amount}`
+                if (!s.payment_history.some((ex: any) => (ex.id || `${ex.date}_${ex.amount}`) === histKey)) {
+                  s.payment_history.push(h)
+                }
+              }
+            })
+          }
         }
       })
+
+      // Calculate totals for pending sessions
+      const pendingSessions: GroupedSaleSession[] = []
+      pendingMap.forEach(s => {
+        s.payment_history.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        const historyPaid = s.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
+        const actualPaid = historyPaid > 0 ? historyPaid : (s.partial_payment || 0)
+        s.partial_payment = actualPaid
+        s.totalPaid = s.advance + actualPaid
+        s.remainingBalance = Math.max(0, Number((s.overallTotal - s.totalPaid).toFixed(2)))
+
+        if (s.remainingBalance === 0) {
+          s.status = 'Completed'
+          completedSum += s.overallTotal
+        } else {
+          s.status = s.totalPaid > 0 ? 'Partial Payment' : 'Pending'
+          pendingSum += s.remainingBalance
+          activeAdvanceSum += s.advance
+          pendingSessions.push(s as GroupedSaleSession)
+        }
+      })
+
+      // Calculate totals for completed sessions
+      const completedSessions: GroupedSaleSession[] = []
+      completedMap.forEach(s => {
+        s.payment_history.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        const historyPaid = s.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
+        s.partial_payment = historyPaid > 0 ? historyPaid : (s.overallTotal - s.advance)
+        s.totalPaid = s.overallTotal
+        s.remainingBalance = 0
+        s.status = 'Completed'
+        completedSessions.push(s as GroupedSaleSession)
+      })
+
       setOverallPending(pendingSum)
       setOverallCompleted(completedSum)
       setOverallAdvance(activeAdvanceSum)
 
-      // Filter for active tab display
-      const activeData = data.filter(d => {
-        const adv = Number(d.advance || 0)
-        const additionalPaid = Number(d.partial_payment || 0)
-        const totalPaid = adv + additionalPaid
-        const grandTotal = Number(d.total_amount || 0)
-        const rem = Math.max(0, grandTotal - totalPaid)
-        const isComp = d.payment_status === 'Completed' || rem === 0
-
-        return activeTab === 'Pending' ? !isComp : isComp
-      })
-
-      // Group by buyer_name
-      const groups = new Map<string, GroupedSaleSession>()
-      
-      activeData.forEach(d => {
-        const rawName = d.buyer_name || 'Unknown Buyer'
-        const key = lang === 'te' && buyerMap.has(rawName) ? buyerMap.get(rawName)! : rawName
-        const adv = Number(d.advance || 0)
-        const additionalPaid = Number(d.partial_payment || 0)
-
-        if (!groups.has(key)) {
-          const initialStatus: 'Pending' | 'Partial Payment' | 'Completed' = (d.payment_status as any) || activeTab
-          groups.set(key, {
-            id: key,
-            buyer_name: key,
-            date: d.date,
-            billsCount: 0,
-            overallTotal: 0,
-            advance: 0,
-            status: initialStatus,
-            bill_ids: [],
-            partial_payment: 0,
-            payment_date: d.payment_date,
-            payment_history: []
-          })
-        }
-        
-        const group = groups.get(key)!
-        group.billsCount += 1
-        group.overallTotal += Number(d.total_amount || 0)
-        group.advance = (group.advance || 0) + adv
-        group.bill_ids.push(d.id)
-        group.partial_payment += additionalPaid
-
-        // Consolidate payment history entries
-        const existingHistory = Array.isArray(d.payment_history) ? [...d.payment_history] : []
-        let hasAdvInHist = false
-        existingHistory.forEach(h => {
-          if (h.remarks === "Advance Payment" || (adv > 0 && h.amount === adv)) {
-            hasAdvInHist = true
-          }
-        })
-
-        if (!hasAdvInHist && adv > 0) {
-          existingHistory.unshift({
-            id: d.id + '_adv',
-            date: d.date,
-            amount: adv,
-            remainingBalance: Math.max(0, Number(d.total_amount || 0) - adv),
-            remarks: "Advance Payment"
-          })
-        }
-
-        group.payment_history = [...(group.payment_history || []), ...existingHistory]
-        
-        if (new Date(d.date) > new Date(group.date)) {
-          group.date = d.date
-        }
-        if (d.payment_date && (!group.payment_date || new Date(d.payment_date) > new Date(group.payment_date))) {
-          group.payment_date = d.payment_date
-        }
-      })
-
-      // Recalculate status for each group
-      groups.forEach(g => {
-        const totalPaid = (g.advance || 0) + g.partial_payment
-        const rem = Math.max(0, g.overallTotal - totalPaid)
-        if (rem === 0 || g.status === 'Completed') {
-          g.status = 'Completed'
-        } else if (totalPaid > 0) {
-          g.status = 'Partial Payment'
-        } else {
-          g.status = 'Pending'
-        }
-      })
-
-      setGroupedSessions(Array.from(groups.values()))
+      if (activeTab === 'Pending') {
+        setGroupedSessions(pendingSessions)
+      } else {
+        setGroupedSessions(completedSessions)
+      }
     }
   }
 
@@ -193,25 +267,27 @@ export function SalesPayments() {
       const today = new Date().toISOString().split('T')[0]
       const existingAdv = Number(paymentModal.advance || 0)
       const newAdvInput = existingAdv > 0 ? existingAdv : Number(advanceInputAmount || 0)
-      const existingAdditional = Number(paymentModal.partial_payment || 0)
       const overallTotal = Number(paymentModal.overallTotal || 0)
       
-      const currentTotalPaid = existingAdv + existingAdditional
-      const effectiveBasePaid = newAdvInput > existingAdv ? (newAdvInput + existingAdditional) : currentTotalPaid
-      const remainingBefore = Math.max(0, overallTotal - effectiveBasePaid)
+      const existingHistory = (paymentModal.payment_history || []).filter((h: any) => h && Number(h.amount) > 0 && h.remarks !== "Advance Payment")
+      const historyPaid = existingHistory.reduce((sum: number, h: any) => sum + Number(h.amount || 0), 0)
+      const existingAdditional = historyPaid > 0 ? historyPaid : Number(paymentModal.partial_payment || 0)
 
-      let newAdditionalToPay = isFinalComplete ? remainingBefore : Number(paymentInputAmount || 0)
-      if (newAdditionalToPay <= 0 && newAdvInput <= existingAdv && !isFinalComplete) {
+      const currentTotalPaid = newAdvInput + existingAdditional
+      const currentBalance = Math.max(0, Number((overallTotal - currentTotalPaid).toFixed(2)))
+
+      let actualPay = isFinalComplete ? currentBalance : Number(paymentInputAmount || 0)
+      if (actualPay <= 0 && newAdvInput <= existingAdv && !isFinalComplete) {
         toast.error("Please enter a valid payment or advance amount")
         return
       }
-      if (newAdditionalToPay > remainingBefore) {
-        newAdditionalToPay = remainingBefore
+      if (actualPay > currentBalance) {
+        actualPay = currentBalance
       }
 
-      const totalNewAdditional = existingAdditional + newAdditionalToPay
+      const totalNewAdditional = existingAdditional + actualPay
       const newTotalPaid = Math.min(overallTotal, newAdvInput + totalNewAdditional)
-      const newRemainingBalance = Math.max(0, overallTotal - newTotalPaid)
+      const newRemainingBalance = Math.max(0, Number((overallTotal - newTotalPaid).toFixed(2)))
 
       let newStatus: 'Pending' | 'Partial Payment' | 'Completed' = 'Pending'
       if (newRemainingBalance === 0 || isFinalComplete) {
@@ -220,58 +296,30 @@ export function SalesPayments() {
         newStatus = 'Partial Payment'
       }
 
-      // Fetch current bills to update individual partial_payment, advance, and payment_history
-      const { data: currentBills } = await supabase
+      // Create a single session-level payment transaction entry
+      const newEntry = {
+        id: crypto.randomUUID(),
+        date: today,
+        amount: actualPay,
+        remainingBalance: newRemainingBalance
+      }
+
+      const updatedHistory = actualPay > 0 
+        ? [...existingHistory.map((h: any) => ({ id: h.id || crypto.randomUUID(), date: h.date, amount: Number(h.amount), remarks: h.remarks })), newEntry]
+        : existingHistory
+
+      // Update all sales bills in this session as a single unified entity
+      const { error: updateError } = await supabase
         .from('sales')
-        .select('id, total_amount, advance, partial_payment, payment_history')
+        .update({
+          payment_status: newStatus,
+          partial_payment: totalNewAdditional,
+          payment_date: today,
+          payment_history: updatedHistory
+        })
         .in('id', paymentModal.bill_ids)
 
-      if (currentBills && currentBills.length > 0) {
-        const perBillAdditionalShare = newAdditionalToPay / currentBills.length
-
-        for (const bill of currentBills) {
-          const billTotal = Number(bill.total_amount || 0)
-          const billOldAdv = Number(bill.advance || 0)
-          const billNewAdv = billOldAdv > 0 ? billOldAdv : (newAdvInput / currentBills.length)
-          
-          const billOldAdditional = Number(bill.partial_payment || 0)
-          const billNewAdditional = billOldAdditional + perBillAdditionalShare
-          const billTotalPaid = Math.min(billTotal, billNewAdv + billNewAdditional)
-          const billRem = Math.max(0, billTotal - billTotalPaid)
-
-          const existingHistory = Array.isArray(bill.payment_history) ? [...bill.payment_history] : []
-          
-          if (billNewAdv > 0) {
-            let hasAdv = existingHistory.some(h => h.remarks === "Advance Payment" || (billOldAdv > 0 && h.amount === billOldAdv))
-            if (!hasAdv) {
-              existingHistory.unshift({
-                id: bill.id + '_adv',
-                date: today,
-                amount: billNewAdv,
-                remainingBalance: Math.max(0, billTotal - billNewAdv),
-                remarks: "Advance Payment"
-              })
-            }
-          }
-
-          if (perBillAdditionalShare > 0) {
-            existingHistory.push({
-              id: crypto.randomUUID(),
-              date: today,
-              amount: perBillAdditionalShare,
-              remainingBalance: billRem
-            })
-          }
-
-          await supabase.from('sales').update({
-            advance: billNewAdv,
-            partial_payment: billNewAdditional,
-            payment_status: newStatus,
-            payment_date: today,
-            payment_history: existingHistory
-          }).eq('id', bill.id)
-        }
-      }
+      if (updateError) throw updateError
 
       toast.success(newStatus === 'Completed' ? "Payment marked as Completed!" : "Payment saved successfully!")
       
@@ -280,7 +328,8 @@ export function SalesPayments() {
         advance: newAdvInput,
         partial_payment: totalNewAdditional, 
         payment_date: today, 
-        status: newStatus 
+        status: newStatus,
+        payment_history: updatedHistory
       }
 
       setPaymentModal(null)
@@ -291,7 +340,7 @@ export function SalesPayments() {
         setExportPromptSession(sessionToExport)
       }
 
-      loadSessions()
+      await loadSessions()
     } catch (err: any) {
       toast.error(err.message || "Failed to save payment")
     }
@@ -347,14 +396,7 @@ export function SalesPayments() {
       }), {})
 
       const advVal = Number(editInvoiceAdvance || 0)
-      const additionalPaid = Number(editInvoicePartialPayment || 0)
-      const totalPaid = advVal + additionalPaid
-      const rem = Math.max(0, totalAmount - totalPaid)
       const formattedVehicle = editInvoiceVehicleNumber.trim() ? formatVehicleNumber(editInvoiceVehicleNumber) : null
-
-      const newStatus = (rem === 0) 
-        ? 'Completed' 
-        : (totalPaid > 0 ? 'Partial Payment' : 'Pending')
 
       const { error } = await supabase
         .from('sales')
@@ -366,8 +408,8 @@ export function SalesPayments() {
           total_amount: totalAmount,
           advance: advVal,
           remarks: editInvoiceRemarks,
-          partial_payment: additionalPaid,
-          payment_status: newStatus,
+          partial_payment: editingInvoice.partial_payment || 0,
+          payment_status: editingInvoice.payment_status || 'Pending',
           items: itemsJson
         })
         .eq('id', editingInvoice.id)
@@ -717,37 +759,85 @@ export function SalesPayments() {
                         </table>
                       </div>
                     </div>
-
-                    {/* Payment History Table for this Invoice */}
-                    {Array.isArray(bill.payment_history) && bill.payment_history.length > 0 && (
-                      <div className="p-4 border-t bg-slate-50/50 space-y-2">
-                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">{t("paymentHistorySection", lang)}</h4>
-                        <div className="border rounded-lg overflow-hidden text-xs bg-background">
-                          <table className="w-full text-left">
-                            <thead className="bg-slate-100 font-semibold text-slate-600">
-                              <tr>
-                                <th className="p-2">#</th>
-                                <th className="p-2">Date</th>
-                                <th className="p-2 text-right">Amount Paid</th>
-                                <th className="p-2 text-right">Running Balance</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {bill.payment_history.map((h, hIdx) => (
-                                <tr key={hIdx} className="border-t">
-                                  <td className="p-2 text-muted-foreground">{hIdx + 1}</td>
-                                  <td className="p-2">{formatDate(h.date)}</td>
-                                  <td className="p-2 text-right font-bold text-green-600">₹{formatInr(h.amount)}</td>
-                                  <td className="p-2 text-right font-medium text-slate-700">₹{formatInr(h.remainingBalance || 0)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 ))}
+
+                {/* Session Payment Summary & Payment History */}
+                {(() => {
+                  const totalAdv = Number(detailsModal.session.advance || 0)
+                  const partialPaid = Number(detailsModal.session.partial_payment || 0)
+                  const totalPaid = totalAdv + partialPaid
+                  const grandTotal = Number(detailsModal.session.overallTotal || 0)
+                  const balance = Math.max(0, grandTotal - totalPaid)
+                  const status = detailsModal.session.status
+
+                  return (
+                    <div className="bg-card border rounded-lg overflow-hidden shadow-sm p-4 space-y-4">
+                      <div className="flex justify-between items-center border-b pb-2">
+                        <h3 className="font-bold text-sm text-foreground uppercase tracking-wider">
+                          {lang === 'te' ? "చెల్లింపు సారాంశం" : "Payment Summary"}
+                        </h3>
+                        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                          status === 'Completed' ? 'bg-green-100 text-green-700' :
+                          status === 'Partial Payment' ? 'bg-orange-100 text-orange-700' :
+                          'bg-amber-100 text-amber-700'
+                        }`}>
+                          {status}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                        <div className="bg-slate-50 p-2.5 rounded-lg border">
+                          <span className="text-xs text-muted-foreground block">{t("overallTotal", lang)}</span>
+                          <span className="font-bold text-sm text-foreground">₹{formatInr(grandTotal)}</span>
+                        </div>
+                        <div className="bg-slate-50 p-2.5 rounded-lg border">
+                          <span className="text-xs text-muted-foreground block">{t("advance", lang)}</span>
+                          <span className="font-bold text-sm text-purple-600">₹{formatInr(totalAdv)}</span>
+                        </div>
+                        <div className="bg-slate-50 p-2.5 rounded-lg border">
+                          <span className="text-xs text-muted-foreground block">{t("amountPaid", lang)}</span>
+                          <span className="font-bold text-sm text-green-600">₹{formatInr(totalPaid)}</span>
+                        </div>
+                        <div className="bg-slate-50 p-2.5 rounded-lg border">
+                          <span className="text-xs text-muted-foreground block">{t("balanceAmount", lang)}</span>
+                          <span className={`font-bold text-sm ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            ₹{formatInr(balance)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Session Payment History Table */}
+                      {Array.isArray(detailsModal.session.payment_history) && detailsModal.session.payment_history.length > 0 && (
+                        <div className="space-y-2 border-t pt-3">
+                          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">{t("paymentHistorySection", lang)}</h4>
+                          <div className="border rounded-lg overflow-hidden text-xs bg-background">
+                            <table className="w-full text-left">
+                              <thead className="bg-slate-100 font-semibold text-slate-600">
+                                <tr>
+                                  <th className="p-2 w-12">#</th>
+                                  <th className="p-2">Date</th>
+                                  <th className="p-2 text-right">Amount Paid</th>
+                                  <th className="p-2 text-right">Running Balance</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {detailsModal.session.payment_history.map((h, hIdx) => (
+                                  <tr key={hIdx} className="border-t">
+                                    <td className="p-2 text-muted-foreground">{hIdx + 1}</td>
+                                    <td className="p-2">{formatDate(h.date)}</td>
+                                    <td className="p-2 text-right font-bold text-green-600">₹{formatInr(h.amount)}</td>
+                                    <td className="p-2 text-right font-medium text-slate-700">₹{formatInr(h.remainingBalance || 0)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             </div>
 
