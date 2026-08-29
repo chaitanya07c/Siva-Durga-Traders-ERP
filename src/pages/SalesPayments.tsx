@@ -308,15 +308,20 @@ export function SalesPayments() {
         ? [...existingHistory.map((h: any) => ({ id: h.id || crypto.randomUUID(), date: h.date, amount: Number(h.amount), remarks: h.remarks })), newEntry]
         : existingHistory
 
+      const updatePayload: any = {
+        payment_status: newStatus,
+        partial_payment: totalNewAdditional,
+        payment_date: today,
+        payment_history: updatedHistory
+      }
+      if (newAdvInput > 0 && existingAdv === 0) {
+        updatePayload.advance = newAdvInput
+      }
+
       // Update all sales bills in this session as a single unified entity
       const { error: updateError } = await supabase
         .from('sales')
-        .update({
-          payment_status: newStatus,
-          partial_payment: totalNewAdditional,
-          payment_date: today,
-          payment_history: updatedHistory
-        })
+        .update(updatePayload)
         .in('id', paymentModal.bill_ids)
 
       if (updateError) throw updateError

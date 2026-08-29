@@ -252,7 +252,7 @@ export function Dashboard() {
         overallSalesCompletedAmount += grp.overallTotal
       } else {
         overallSalesPendingAmount += rem
-        overallSalesAdvanceReceived += totalPaid
+        overallSalesAdvanceReceived += grp.advance
       }
     })
 

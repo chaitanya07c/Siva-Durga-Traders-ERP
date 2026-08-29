@@ -223,7 +223,7 @@ export function Reports() {
           salesOverallCompleted += grp.overallTotal
         } else {
           salesOverallPending += rem
-          salesOverallAdvance += totalPaid
+          salesOverallAdvance += grp.advance
         }
       })
 
@@ -416,7 +416,7 @@ export function Reports() {
           lifetimeSalesCompleted += grp.overallTotal
         } else {
           lifetimeSalesPending += rem
-          lifetimeSalesAdvance += totalPaid
+          lifetimeSalesAdvance += grp.advance
         }
       })
 
