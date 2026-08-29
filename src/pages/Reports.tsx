@@ -157,7 +157,7 @@ export function Reports() {
       // -------------------------------------------------------------
       const { data: rangeSales } = await supabase
         .from('sales')
-        .select('total_amount, advance, payment_status, partial_payment, payment_date, date')
+        .select('buyer_name, total_amount, advance, payment_status, partial_payment, payment_date, payment_history, date')
         .gte('date', startDate)
         .lte('date', endDate)
 
@@ -166,19 +166,61 @@ export function Reports() {
       let salesOverallPending = 0
       let salesOverallAdvance = 0
 
+      const salesPendingMap = new Map<string, {
+        buyer_name: string;
+        overallTotal: number;
+        advance: number;
+        partial_payment: number;
+        payment_history: { id?: string, date: string, amount: number, remarks?: string }[];
+      }>()
+
       rangeSales?.forEach(s => {
         const gTotal = Number(s.total_amount || 0)
         const adv = Number(s.advance || 0)
-        const partPay = Number(s.partial_payment || 0)
-        const totalPaid = adv + partPay
-        const rem = Math.max(0, gTotal - totalPaid)
-
         salesOverallSalesAmount += gTotal
 
-        const isCompleted = s.payment_status === 'Completed' || rem === 0
-
-        if (isCompleted) {
+        if (s.payment_status === 'Completed') {
           salesOverallCompleted += gTotal
+        } else {
+          const rawName = s.buyer_name || 'Unknown Buyer'
+          if (!salesPendingMap.has(rawName)) {
+            salesPendingMap.set(rawName, {
+              buyer_name: rawName,
+              overallTotal: 0,
+              advance: 0,
+              partial_payment: Number(s.partial_payment || 0),
+              payment_history: []
+            })
+          }
+          const grp = salesPendingMap.get(rawName)!
+          grp.overallTotal += gTotal
+          grp.advance += adv
+          if (s.partial_payment && Number(s.partial_payment) > grp.partial_payment) {
+            grp.partial_payment = Number(s.partial_payment)
+          }
+
+          if (Array.isArray(s.payment_history)) {
+            s.payment_history.forEach((h: any) => {
+              if (h && Number(h.amount) > 0 && h.date) {
+                if (h.remarks === "Advance Payment") return
+                const histKey = h.id || `${h.date}_${h.amount}`
+                if (!grp.payment_history.some((ex: any) => (ex.id || `${ex.date}_${ex.amount}`) === histKey)) {
+                  grp.payment_history.push(h)
+                }
+              }
+            })
+          }
+        }
+      })
+
+      salesPendingMap.forEach(grp => {
+        const historyPaid = grp.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
+        const actualPaid = historyPaid > 0 ? historyPaid : (grp.partial_payment || 0)
+        const totalPaid = grp.advance + actualPaid
+        const rem = Math.max(0, Number((grp.overallTotal - totalPaid).toFixed(2)))
+
+        if (rem === 0) {
+          salesOverallCompleted += grp.overallTotal
         } else {
           salesOverallPending += rem
           salesOverallAdvance += totalPaid
@@ -310,26 +352,68 @@ export function Reports() {
       // 2. ALL SALES (LIFETIME)
       const { data: allSales } = await supabase
         .from('sales')
-        .select('total_amount, advance, payment_status, partial_payment')
+        .select('buyer_name, total_amount, advance, payment_status, partial_payment, payment_history')
 
       let lifetimeSalesAmount = 0
       let lifetimeSalesCompleted = 0
       let lifetimeSalesPending = 0
       let lifetimeSalesAdvance = 0
 
+      const lifetimeSalesPendingMap = new Map<string, {
+        buyer_name: string;
+        overallTotal: number;
+        advance: number;
+        partial_payment: number;
+        payment_history: { id?: string, date: string, amount: number, remarks?: string }[];
+      }>()
+
       allSales?.forEach(s => {
         const gTotal = Number(s.total_amount || 0)
         const adv = Number(s.advance || 0)
-        const partPay = Number(s.partial_payment || 0)
-        const totalPaid = adv + partPay
-        const rem = Math.max(0, gTotal - totalPaid)
-
         lifetimeSalesAmount += gTotal
 
-        const isCompleted = s.payment_status === 'Completed' || rem === 0
-
-        if (isCompleted) {
+        if (s.payment_status === 'Completed') {
           lifetimeSalesCompleted += gTotal
+        } else {
+          const rawName = s.buyer_name || 'Unknown Buyer'
+          if (!lifetimeSalesPendingMap.has(rawName)) {
+            lifetimeSalesPendingMap.set(rawName, {
+              buyer_name: rawName,
+              overallTotal: 0,
+              advance: 0,
+              partial_payment: Number(s.partial_payment || 0),
+              payment_history: []
+            })
+          }
+          const grp = lifetimeSalesPendingMap.get(rawName)!
+          grp.overallTotal += gTotal
+          grp.advance += adv
+          if (s.partial_payment && Number(s.partial_payment) > grp.partial_payment) {
+            grp.partial_payment = Number(s.partial_payment)
+          }
+
+          if (Array.isArray(s.payment_history)) {
+            s.payment_history.forEach((h: any) => {
+              if (h && Number(h.amount) > 0 && h.date) {
+                if (h.remarks === "Advance Payment") return
+                const histKey = h.id || `${h.date}_${h.amount}`
+                if (!grp.payment_history.some((ex: any) => (ex.id || `${ex.date}_${ex.amount}`) === histKey)) {
+                  grp.payment_history.push(h)
+                }
+              }
+            })
+          }
+        }
+      })
+
+      lifetimeSalesPendingMap.forEach(grp => {
+        const historyPaid = grp.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
+        const actualPaid = historyPaid > 0 ? historyPaid : (grp.partial_payment || 0)
+        const totalPaid = grp.advance + actualPaid
+        const rem = Math.max(0, Number((grp.overallTotal - totalPaid).toFixed(2)))
+
+        if (rem === 0) {
+          lifetimeSalesCompleted += grp.overallTotal
         } else {
           lifetimeSalesPending += rem
           lifetimeSalesAdvance += totalPaid

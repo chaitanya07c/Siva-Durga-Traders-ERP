@@ -186,7 +186,7 @@ export function Dashboard() {
     // -------------------------------------------------------------
     const { data: monthSales } = await supabase
       .from('sales')
-      .select('total_amount, advance, payment_status, partial_payment, payment_date, date')
+      .select('buyer_name, total_amount, advance, payment_status, partial_payment, payment_date, payment_history, date')
       .gte('date', startOfMonth)
       .lte('date', endOfMonth)
 
@@ -195,19 +195,61 @@ export function Dashboard() {
     let overallSalesPendingAmount = 0
     let overallSalesAdvanceReceived = 0
 
+    const salesPendingMap = new Map<string, {
+      buyer_name: string;
+      overallTotal: number;
+      advance: number;
+      partial_payment: number;
+      payment_history: { id?: string, date: string, amount: number, remarks?: string }[];
+    }>()
+
     monthSales?.forEach(s => {
       const gTotal = Number(s.total_amount || 0)
       const adv = Number(s.advance || 0)
-      const partPay = Number(s.partial_payment || 0)
-      const totalPaid = adv + partPay
-      const rem = Math.max(0, gTotal - totalPaid)
-
       overallSalesAmount += gTotal
 
-      const isCompleted = s.payment_status === 'Completed' || rem === 0
-
-      if (isCompleted) {
+      if (s.payment_status === 'Completed') {
         overallSalesCompletedAmount += gTotal
+      } else {
+        const rawName = s.buyer_name || 'Unknown Buyer'
+        if (!salesPendingMap.has(rawName)) {
+          salesPendingMap.set(rawName, {
+            buyer_name: rawName,
+            overallTotal: 0,
+            advance: 0,
+            partial_payment: Number(s.partial_payment || 0),
+            payment_history: []
+          })
+        }
+        const grp = salesPendingMap.get(rawName)!
+        grp.overallTotal += gTotal
+        grp.advance += adv
+        if (s.partial_payment && Number(s.partial_payment) > grp.partial_payment) {
+          grp.partial_payment = Number(s.partial_payment)
+        }
+
+        if (Array.isArray(s.payment_history)) {
+          s.payment_history.forEach((h: any) => {
+            if (h && Number(h.amount) > 0 && h.date) {
+              if (h.remarks === "Advance Payment") return
+              const histKey = h.id || `${h.date}_${h.amount}`
+              if (!grp.payment_history.some((ex: any) => (ex.id || `${ex.date}_${ex.amount}`) === histKey)) {
+                grp.payment_history.push(h)
+              }
+            }
+          })
+        }
+      }
+    })
+
+    salesPendingMap.forEach(grp => {
+      const historyPaid = grp.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
+      const actualPaid = historyPaid > 0 ? historyPaid : (grp.partial_payment || 0)
+      const totalPaid = grp.advance + actualPaid
+      const rem = Math.max(0, Number((grp.overallTotal - totalPaid).toFixed(2)))
+
+      if (rem === 0) {
+        overallSalesCompletedAmount += grp.overallTotal
       } else {
         overallSalesPendingAmount += rem
         overallSalesAdvanceReceived += totalPaid
