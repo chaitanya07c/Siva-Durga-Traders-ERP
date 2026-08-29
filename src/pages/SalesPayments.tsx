@@ -216,8 +216,10 @@ export function SalesPayments() {
         s.payment_history.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
         const historyPaid = s.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
         const actualPaid = historyPaid > 0 ? historyPaid : (s.partial_payment || 0)
-        s.partial_payment = actualPaid
-        s.totalPaid = s.advance + actualPaid
+        const totalReceived = s.advance > 0 && s.advance !== actualPaid ? s.advance + actualPaid : Math.max(s.advance, actualPaid)
+        s.advance = totalReceived
+        s.partial_payment = totalReceived
+        s.totalPaid = totalReceived
         s.remainingBalance = Math.max(0, Number((s.overallTotal - s.totalPaid).toFixed(2)))
 
         if (s.remainingBalance === 0) {
@@ -226,7 +228,7 @@ export function SalesPayments() {
         } else {
           s.status = s.totalPaid > 0 ? 'Partial Payment' : 'Pending'
           pendingSum += s.remainingBalance
-          activeAdvanceSum += s.advance
+          activeAdvanceSum += totalReceived
           pendingSessions.push(s as GroupedSaleSession)
         }
       })
@@ -236,7 +238,10 @@ export function SalesPayments() {
       completedMap.forEach(s => {
         s.payment_history.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
         const historyPaid = s.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
-        s.partial_payment = historyPaid > 0 ? historyPaid : (s.overallTotal - s.advance)
+        const actualPaid = historyPaid > 0 ? historyPaid : (s.overallTotal - s.advance)
+        const totalReceived = s.overallTotal
+        s.advance = totalReceived
+        s.partial_payment = actualPaid
         s.totalPaid = s.overallTotal
         s.remainingBalance = 0
         s.status = 'Completed'
@@ -271,22 +276,21 @@ export function SalesPayments() {
       
       const existingHistory = (paymentModal.payment_history || []).filter((h: any) => h && Number(h.amount) > 0 && h.remarks !== "Advance Payment")
       const historyPaid = existingHistory.reduce((sum: number, h: any) => sum + Number(h.amount || 0), 0)
-      const existingAdditional = historyPaid > 0 ? historyPaid : Number(paymentModal.partial_payment || 0)
+      const existingReceived = Math.max(existingAdv, newAdvInput, historyPaid, Number(paymentModal.partial_payment || 0))
 
-      const currentTotalPaid = newAdvInput + existingAdditional
-      const currentBalance = Math.max(0, Number((overallTotal - currentTotalPaid).toFixed(2)))
+      const currentBalance = Math.max(0, Number((overallTotal - existingReceived).toFixed(2)))
 
       let actualPay = isFinalComplete ? currentBalance : Number(paymentInputAmount || 0)
       if (actualPay <= 0 && newAdvInput <= existingAdv && !isFinalComplete) {
-        toast.error("Please enter a valid payment or advance amount")
+        toast.error("Please enter a valid payment amount")
         return
       }
       if (actualPay > currentBalance) {
         actualPay = currentBalance
       }
 
-      const totalNewAdditional = existingAdditional + actualPay
-      const newTotalPaid = Math.min(overallTotal, newAdvInput + totalNewAdditional)
+      const totalNewAdditional = existingReceived + actualPay
+      const newTotalPaid = Math.min(overallTotal, totalNewAdditional)
       const newRemainingBalance = Math.max(0, Number((overallTotal - newTotalPaid).toFixed(2)))
 
       let newStatus: 'Pending' | 'Partial Payment' | 'Completed' = 'Pending'
@@ -330,7 +334,7 @@ export function SalesPayments() {
       
       const sessionToExport: GroupedSaleSession = { 
         ...paymentModal, 
-        advance: newAdvInput,
+        advance: newTotalPaid,
         partial_payment: totalNewAdditional, 
         payment_date: today, 
         status: newStatus,
@@ -770,10 +774,8 @@ export function SalesPayments() {
                 {/* Session Payment Summary & Payment History */}
                 {(() => {
                   const totalAdv = Number(detailsModal.session.advance || 0)
-                  const partialPaid = Number(detailsModal.session.partial_payment || 0)
-                  const totalPaid = totalAdv + partialPaid
                   const grandTotal = Number(detailsModal.session.overallTotal || 0)
-                  const balance = Math.max(0, grandTotal - totalPaid)
+                  const balance = Math.max(0, Number((grandTotal - totalAdv).toFixed(2)))
                   const status = detailsModal.session.status
 
                   return (
@@ -802,7 +804,7 @@ export function SalesPayments() {
                         </div>
                         <div className="bg-slate-50 p-2.5 rounded-lg border">
                           <span className="text-xs text-muted-foreground block">{t("amountPaid", lang)}</span>
-                          <span className="font-bold text-sm text-green-600">₹{formatInr(totalPaid)}</span>
+                          <span className="font-bold text-sm text-green-600">₹{formatInr(totalAdv)}</span>
                         </div>
                         <div className="bg-slate-50 p-2.5 rounded-lg border">
                           <span className="text-xs text-muted-foreground block">{t("balanceAmount", lang)}</span>
@@ -884,12 +886,10 @@ export function SalesPayments() {
         const existingAdv = Number(paymentModal.advance || 0)
         const hasExistingAdv = existingAdv > 0
         const effectiveAdv = hasExistingAdv ? existingAdv : Number(advanceInputAmount || 0)
-        const existingAdditional = Number(paymentModal.partial_payment || 0)
         const additionalInput = Number(paymentInputAmount || 0)
-        const totalAdditional = existingAdditional + additionalInput
-        const totalPaid = effectiveAdv + totalAdditional
         const grandTotal = Number(paymentModal.overallTotal || 0)
-        const remainingBalance = Math.max(0, grandTotal - totalPaid)
+        const totalPaid = Math.min(grandTotal, effectiveAdv + additionalInput)
+        const remainingBalance = Math.max(0, Number((grandTotal - totalPaid).toFixed(2)))
 
         let statusText = 'Pending'
         if (remainingBalance === 0) statusText = 'Completed'
@@ -923,7 +923,7 @@ export function SalesPayments() {
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground font-medium">Additional Paid</p>
-                    <p className="text-base font-bold text-blue-600">₹{formatInr(totalAdditional)}</p>
+                    <p className="text-base font-bold text-blue-600">₹{formatInr(additionalInput)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground font-medium">{t("amountPaid", lang)}</p>

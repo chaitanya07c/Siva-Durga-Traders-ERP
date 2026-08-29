@@ -216,14 +216,14 @@ export function Reports() {
       salesPendingMap.forEach(grp => {
         const historyPaid = grp.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
         const actualPaid = historyPaid > 0 ? historyPaid : (grp.partial_payment || 0)
-        const totalPaid = grp.advance + actualPaid
+        const totalPaid = grp.advance > 0 && grp.advance !== actualPaid ? grp.advance + actualPaid : Math.max(grp.advance, actualPaid)
         const rem = Math.max(0, Number((grp.overallTotal - totalPaid).toFixed(2)))
 
         if (rem === 0) {
           salesOverallCompleted += grp.overallTotal
         } else {
           salesOverallPending += rem
-          salesOverallAdvance += grp.advance
+          salesOverallAdvance += totalPaid
         }
       })
 
@@ -409,14 +409,14 @@ export function Reports() {
       lifetimeSalesPendingMap.forEach(grp => {
         const historyPaid = grp.payment_history.reduce((sum, h) => sum + Number(h.amount || 0), 0)
         const actualPaid = historyPaid > 0 ? historyPaid : (grp.partial_payment || 0)
-        const totalPaid = grp.advance + actualPaid
+        const totalPaid = grp.advance > 0 && grp.advance !== actualPaid ? grp.advance + actualPaid : Math.max(grp.advance, actualPaid)
         const rem = Math.max(0, Number((grp.overallTotal - totalPaid).toFixed(2)))
 
         if (rem === 0) {
           lifetimeSalesCompleted += grp.overallTotal
         } else {
           lifetimeSalesPending += rem
-          lifetimeSalesAdvance += grp.advance
+          lifetimeSalesAdvance += totalPaid
         }
       })
 

@@ -98,8 +98,6 @@ export const generateSalesCombinedPDF = async (
       bills = await fetchSalesBillBreakdowns(session, lang)
     }
     
-    const totalAdvance = session.advance !== undefined ? session.advance : bills.reduce((sum, b) => sum + (b.advance || 0), 0)
-
     // Consolidate payment history from bills and session
     const historyMap = new Map<string, { date: string, amount: number, remarks?: string }>()
     
@@ -133,7 +131,9 @@ export const generateSalesCombinedPDF = async (
     const historyList = Array.from(historyMap.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     const totalActualPayments = historyList.reduce((sum, h) => sum + Number(h.amount || 0), 0)
     const additionalPayments = totalActualPayments > 0 ? totalActualPayments : (session.partial_payment || 0)
-    const totalPaid = totalAdvance + additionalPayments
+    const sessionAdvance = Number(session.advance || 0)
+    const billAdvance = bills.reduce((sum, b) => sum + Number(b.advance || 0), 0)
+    const totalPaid = Math.max(sessionAdvance, totalActualPayments > 0 ? (sessionAdvance > totalActualPayments ? sessionAdvance : totalActualPayments) : (billAdvance + additionalPayments))
     const balance = Math.max(0, Number((session.overallTotal - totalPaid).toFixed(2)))
 
     let paymentStatus = "Pending"
@@ -143,14 +143,6 @@ export const generateSalesCombinedPDF = async (
       paymentStatus = "Partial Paid"
     } else {
       paymentStatus = "Pending"
-    }
-
-    if (totalAdvance > 0) {
-      historyList.unshift({
-        date: session.date,
-        amount: totalAdvance,
-        remarks: "Advance Payment"
-      })
     }
 
     const sortedHistory = historyList
@@ -221,9 +213,9 @@ export const generateSalesCombinedPDF = async (
       }),
       paymentSummary: {
         overallAmount: session.overallTotal || 0,
-        advanceAmount: totalAdvance,
+        advanceAmount: totalPaid,
         balanceAmount: balance,
-        partialPaid: additionalPayments,
+        partialPaid: totalPaid,
         status: paymentStatus,
         paymentDate: effectivePaymentDate,
         completedDate: effectivePaymentDate,
