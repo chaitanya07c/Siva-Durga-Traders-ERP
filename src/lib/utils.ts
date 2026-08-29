@@ -47,6 +47,15 @@ export function getMsUntilNextMidnight(now: Date = new Date()): number {
 export function formatDate(dateVal: string | Date | null | undefined): string {
   if (!dateVal) return "-"
   try {
+    if (typeof dateVal === 'string') {
+      const trimmed = dateVal.trim()
+      const onlyDate = trimmed.includes("T") ? trimmed.split("T")[0] : (trimmed.includes(" ") ? trimmed.split(" ")[0] : trimmed)
+      const parts = onlyDate.split("-")
+      if (parts.length === 3 && parts[0].length === 4) {
+        const [y, m, d] = parts
+        return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`
+      }
+    }
     const dateObj = typeof dateVal === 'string' ? new Date(dateVal) : dateVal
     if (isNaN(dateObj.getTime())) {
       // Fallback: if browser fails to parse, split YYYY-MM-DD

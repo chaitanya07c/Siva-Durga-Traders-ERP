@@ -708,8 +708,8 @@ export function SalesPayments() {
                   <div key={index} className="bg-card border rounded-lg overflow-hidden shadow-sm">
                     <div className="bg-slate-100 px-4 py-2 border-b flex justify-between items-center font-semibold">
                       <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center gap-2">
-                          <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''} {bill.vehicleNumber ? `• Vehicle: ${bill.vehicleNumber}` : ''}</span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>Invoice {index + 1} {bill.invoiceNumber ? `(#${bill.invoiceNumber})` : ''} {bill.vehicleNumber ? `• Vehicle: ${bill.vehicleNumber}` : ''} • Date: {formatDate(bill.date || detailsModal.session.date)}</span>
                           {detailsModal.session.status !== 'Completed' && (
                             <button
                               onClick={() => handleEditInvoiceInitiate(bill)}
