@@ -113,6 +113,15 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
   }
 }
 
+const isValidFieldValue = (val: unknown): val is string => {
+  if (val === null || val === undefined) return false
+  const str = String(val).trim()
+  if (!str) return false
+  if (str === '-' || str === '--' || str === '---' || str === 'N/A' || str === 'n/a') return false
+  if (str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined' || str.toLowerCase() === 'unknown') return false
+  return true
+}
+
 // Header drawing is now imported from pdfTemplate.ts
 
 export const generateCombinedPDF = async (
@@ -200,16 +209,24 @@ export const generateCombinedPDF = async (
         const contactMobile = currentShop?.mobile || ''
         const contactStr = contactPerson ? `${contactPerson} (${contactMobile})` : contactMobile
 
-        const metadataLeft = [
-          `Shop Name: ${shopName}`,
-          `Landmark: ${landmarkText}`,
-          `Contact: ${contactStr || '-'}`
-        ]
+        const metadataLeft: string[] = []
+        if (isValidFieldValue(shopName)) {
+          metadataLeft.push(`Shop Name: ${shopName.trim()}`)
+        }
+        if (isValidFieldValue(landmarkText)) {
+          metadataLeft.push(`Landmark: ${landmarkText.trim()}`)
+        }
+        if (isValidFieldValue(contactStr)) {
+          metadataLeft.push(`Contact: ${contactStr.trim()}`)
+        }
         
-        const metadataRight = [
-          `Bill No: #${bill.billNumber || ''}`,
-          `Date: ${formatDate(bill.date)}`
-        ]
+        const metadataRight: string[] = []
+        if (isValidFieldValue(bill.billNumber)) {
+          metadataRight.push(`Bill No: #${bill.billNumber}`)
+        }
+        if (isValidFieldValue(bill.date)) {
+          metadataRight.push(`Date: ${formatDate(bill.date)}`)
+        }
 
         const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map((i: any) => ({
           name: i.name,
@@ -503,16 +520,24 @@ export const generateCombinedGroupPDF = async (
         const contactMobile = bill.shop?.mobile || ''
         const contactStr = contactPerson ? `${contactPerson} (${contactMobile})` : contactMobile
 
-        const metadataLeft = [
-          `Shop Name: ${shopName}`,
-          `Landmark: ${landmarkText}`,
-          `Contact: ${contactStr || '-'}`
-        ]
+        const metadataLeft: string[] = []
+        if (isValidFieldValue(shopName)) {
+          metadataLeft.push(`Shop Name: ${shopName.trim()}`)
+        }
+        if (isValidFieldValue(landmarkText)) {
+          metadataLeft.push(`Landmark: ${landmarkText.trim()}`)
+        }
+        if (isValidFieldValue(contactStr)) {
+          metadataLeft.push(`Contact: ${contactStr.trim()}`)
+        }
         
-        const metadataRight = [
-          `Bill No: #${bill.billNumber || ''}`,
-          `Date: ${formatDate(bill.date)}`
-        ]
+        const metadataRight: string[] = []
+        if (isValidFieldValue(bill.billNumber)) {
+          metadataRight.push(`Bill No: #${bill.billNumber}`)
+        }
+        if (isValidFieldValue(bill.date)) {
+          metadataRight.push(`Date: ${formatDate(bill.date)}`)
+        }
 
         const displayItems = (bill.items || []).filter((item: any) => item && item.quantity > 0 && item.total > 0).map((i: any) => ({
           name: i.name,
