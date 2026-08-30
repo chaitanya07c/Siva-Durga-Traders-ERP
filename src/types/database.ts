@@ -68,6 +68,12 @@ export type PurchaseItem = {
   total: number
 }
 
+export type SaleExpense = {
+  id?: string
+  name: string
+  amount: number
+}
+
 export type Sale = {
   id: string
   date: string
@@ -79,6 +85,7 @@ export type Sale = {
   total_amount: number
   advance?: number
   items?: Record<string, any>
+  additional_expenses?: SaleExpense[] | null
   payment_status: string
   partial_payment: number
   payment_date: string | null

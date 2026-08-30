@@ -106,8 +106,12 @@ CREATE TABLE IF NOT EXISTS public.sales (
     driver_name TEXT,
     driver_phone TEXT,
     items JSONB NOT NULL DEFAULT '{}'::jsonb,
+    additional_expenses JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Ensure additional_expenses column exists if table is already created
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS additional_expenses JSONB DEFAULT '[]'::jsonb;
 
 -- 2.7 SALES BILL ITEMS (Historic / Relational Reference)
 CREATE TABLE IF NOT EXISTS public.sale_items (

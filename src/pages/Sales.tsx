@@ -37,6 +37,11 @@ export function Sales() {
   const [isItemModalOpen, setIsItemModalOpen] = useState(false)
   const [itemSearch, setItemSearch] = useState("")
 
+  // Additional Expenses State
+  const [additionalExpenses, setAdditionalExpenses] = useState<{ id: string, name: string, amount: number }[]>([])
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null)
+  const [editingInvoiceNumber, setEditingInvoiceNumber] = useState<string | null>(null)
+
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [factoryName, setFactoryName] = useState("")
   const [vehicleNumber, setVehicleNumber] = useState("")
@@ -172,14 +177,46 @@ export function Sales() {
     setSelectedItems(prev => prev.filter((_, i) => i !== index))
   }
 
+  const handleAddExpense = () => {
+    setAdditionalExpenses(prev => [...prev, { id: crypto.randomUUID(), name: "", amount: 0 }])
+  }
+
+  const updateExpense = (id: string, field: 'name' | 'amount', value: any) => {
+    setAdditionalExpenses(prev => prev.map(exp => {
+      if (exp.id === id) {
+        if (field === 'amount') {
+          const numVal = Math.max(0, Number(value) || 0)
+          return { ...exp, amount: numVal }
+        }
+        return { ...exp, [field]: value }
+      }
+      return exp
+    }))
+  }
+
+  const removeExpense = (id: string) => {
+    setAdditionalExpenses(prev => prev.filter(exp => exp.id !== id))
+  }
+
   const totalQuantity = selectedItems.reduce((sum, i) => sum + i.quantity, 0)
-  const grandTotal = selectedItems.reduce((sum, i) => sum + i.total, 0)
+  const itemsTotal = selectedItems.reduce((sum, i) => sum + i.total, 0)
+  const additionalExpensesTotal = additionalExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+  const grandTotal = Number((itemsTotal + additionalExpensesTotal).toFixed(2))
+  const advanceVal = Number(advance || 0)
+  const remainingBalance = Math.max(0, Number((grandTotal - advanceVal).toFixed(2)))
 
   const handleSaveSale = async () => {
     if (!factoryName) return toast.error("Please select a Buyer / Factory")
     if (selectedItems.length === 0) return toast.error("Please add at least one item")
     if (totalQuantity <= 0) return toast.error("Please enter quantities greater than 0")
     if (grandTotal <= 0) return toast.error("Total amount must be greater than 0")
+    
+    for (const exp of additionalExpenses) {
+      if (Number(exp.amount) < 0) {
+        return toast.error("Expense amount cannot be negative")
+      }
+    }
+
     if (vehicleNumber.trim() && !isValidVehicleNumber(vehicleNumber)) {
       return toast.error("Please enter a valid Vehicle Number (e.g. AP 27 TX 3987)")
     }
@@ -198,47 +235,137 @@ export function Sales() {
       }))
       const itemsJson = itemsToSave.reduce((acc, curr) => ({ ...acc, [curr.name]: curr }), {})
 
-      const invoiceNumber = `INV-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`;
-      const advanceVal = Number(advance || 0)
+      const formattedExpenses = additionalExpenses
+        .filter(e => e.name.trim() || Number(e.amount) > 0)
+        .map(e => ({ name: e.name.trim() || 'Expense', amount: Number(e.amount) || 0 }))
+
       const formattedVehicle = vehicleNumber.trim() ? formatVehicleNumber(vehicleNumber) : null
+      const advanceNumber = Number(advance || 0)
 
-      const initialStatus = (advanceVal >= grandTotal) 
-        ? 'Completed' 
-        : (advanceVal > 0 ? 'Partial Payment' : 'Pending')
+      if (editingSaleId) {
+        // Update existing sale
+        const { data: existingSale } = await supabase.from('sales').select('*').eq('id', editingSaleId).single()
+        
+        let paymentStatus = existingSale?.payment_status || 'Pending'
+        let paymentHistory = Array.isArray(existingSale?.payment_history) ? [...existingSale.payment_history] : []
+        const partialPay = Number(existingSale?.partial_payment || 0)
+        const totalPaidSoFar = advanceNumber + partialPay
 
-      const initialHistory = advanceVal > 0 ? [{
-        id: crypto.randomUUID(),
-        date: date,
-        amount: advanceVal,
-        remainingBalance: Math.max(0, grandTotal - advanceVal),
-        remarks: "Advance Payment"
-      }] : []
+        if (totalPaidSoFar >= grandTotal && grandTotal > 0) {
+          paymentStatus = 'Completed'
+        } else if (totalPaidSoFar > 0) {
+          paymentStatus = 'Partial Payment'
+        } else {
+          paymentStatus = 'Pending'
+        }
 
-      const { data: saleData, error: saleError } = await supabase
-        .from('sales')
-        .insert([{
+        // If payment history has advance, update it
+        if (paymentHistory.length > 0 && paymentHistory[0].remarks === "Advance Payment") {
+          if (advanceNumber > 0) {
+            paymentHistory[0].amount = advanceNumber
+            paymentHistory[0].remainingBalance = Math.max(0, grandTotal - advanceNumber)
+          } else {
+            paymentHistory.shift()
+          }
+        } else if (advanceNumber > 0 && paymentHistory.length === 0) {
+          paymentHistory = [{
+            id: crypto.randomUUID(),
+            date: date,
+            amount: advanceNumber,
+            remainingBalance: Math.max(0, grandTotal - advanceNumber),
+            remarks: "Advance Payment"
+          }]
+        }
+
+        const updatePayload: any = {
           date,
           buyer_name: factoryName,
           vehicle_number: formattedVehicle,
           driver_name: driverName.trim() || null,
           driver_phone: driverPhone.trim().replace(/\D/g, '') || null,
           total_amount: grandTotal,
-          advance: advanceVal,
+          advance: advanceNumber,
+          payment_status: paymentStatus,
+          payment_history: paymentHistory,
+          remarks,
+          items: {
+            ...itemsJson,
+            ...(formattedExpenses.length > 0 ? { _additional_expenses: formattedExpenses } : {})
+          },
+          additional_expenses: formattedExpenses
+        }
+
+        let { error: updateErr } = await supabase
+          .from('sales')
+          .update(updatePayload)
+          .eq('id', editingSaleId)
+
+        if (updateErr && (updateErr.message?.includes('additional_expenses') || updateErr.code === 'PGRST204')) {
+          delete updatePayload.additional_expenses
+          const retry = await supabase.from('sales').update(updatePayload).eq('id', editingSaleId)
+          updateErr = retry.error
+        }
+
+        if (updateErr) throw updateErr
+
+        toast.success("Sales Invoice updated successfully!")
+        setSavedSaleId(editingSaleId)
+        setEditingSaleId(null)
+        setEditingInvoiceNumber(null)
+        loadSales()
+      } else {
+        const invoiceNumber = `INV-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`
+        const initialStatus = (advanceNumber >= grandTotal) 
+          ? 'Completed' 
+          : (advanceNumber > 0 ? 'Partial Payment' : 'Pending')
+
+        const initialHistory = advanceNumber > 0 ? [{
+          id: crypto.randomUUID(),
+          date: date,
+          amount: advanceNumber,
+          remainingBalance: Math.max(0, grandTotal - advanceNumber),
+          remarks: "Advance Payment"
+        }] : []
+
+        const salePayload: any = {
+          date,
+          buyer_name: factoryName,
+          vehicle_number: formattedVehicle,
+          driver_name: driverName.trim() || null,
+          driver_phone: driverPhone.trim().replace(/\D/g, '') || null,
+          total_amount: grandTotal,
+          advance: advanceNumber,
           payment_status: initialStatus,
           partial_payment: 0,
           payment_history: initialHistory,
           remarks,
-          items: itemsJson,
+          items: {
+            ...itemsJson,
+            ...(formattedExpenses.length > 0 ? { _additional_expenses: formattedExpenses } : {})
+          },
+          additional_expenses: formattedExpenses,
           invoice_number: invoiceNumber
-        }])
-        .select()
-        .single()
+        }
 
-      if (saleError) throw saleError
+        let { data: saleData, error: saleError } = await supabase
+          .from('sales')
+          .insert([salePayload])
+          .select()
+          .single()
 
-      toast.success("Sales Invoice recorded successfully!")
-      setSavedSaleId(saleData.id)
-      loadSales()
+        if (saleError && (saleError.message?.includes('additional_expenses') || saleError.code === 'PGRST204')) {
+          delete salePayload.additional_expenses
+          const retry = await supabase.from('sales').insert([salePayload]).select().single()
+          saleData = retry.data
+          saleError = retry.error
+        }
+
+        if (saleError) throw saleError
+
+        toast.success("Sales Invoice recorded successfully!")
+        setSavedSaleId(saleData.id)
+        loadSales()
+      }
     } catch (err: any) {
       toast.error(err.message || "Error saving sale")
     } finally {
@@ -246,14 +373,60 @@ export function Sales() {
     }
   }
 
+  const handleEditSale = (sale: Sale) => {
+    setEditingSaleId(sale.id)
+    setEditingInvoiceNumber(sale.invoice_number || null)
+    setFactoryName(sale.buyer_name || "")
+    setDate(sale.date || new Date().toISOString().split('T')[0])
+    setVehicleNumber(sale.vehicle_number || "")
+    setDriverName(sale.driver_name || "")
+    setDriverPhone(sale.driver_phone || "")
+    setRemarks(sale.remarks || "")
+    setAdvance(sale.advance || 0)
+    
+    // Load items (ignoring internal metadata keys like _additional_expenses)
+    const itemsJson = sale.items || {}
+    const itemsList: SalesItem[] = Object.entries(itemsJson)
+      .filter(([k]) => k !== '_additional_expenses')
+      .map(([_, i]: [string, any]) => ({
+        name: i.name,
+        quantity: Number(i.quantity || 0),
+        rate: Number(i.rate || 0),
+        total: Number(i.total || 0),
+        unit: i.unit || getItemUnit(i.name, 'sales', availableMaterials)
+      }))
+    setSelectedItems(itemsList)
+
+    // Load additional expenses from column or items._additional_expenses
+    const rawExpenses = Array.isArray(sale.additional_expenses) && sale.additional_expenses.length > 0
+      ? sale.additional_expenses
+      : (Array.isArray(sale.items?._additional_expenses) ? sale.items._additional_expenses : [])
+
+    const expensesList = rawExpenses.map((e: any) => ({
+      id: crypto.randomUUID(),
+      name: String(e.name || ''),
+      amount: Number(e.amount || 0)
+    }))
+    setAdditionalExpenses(expensesList)
+
+    setSavedSaleId(null)
+  }
+
+  const cancelEdit = () => {
+    resetFormForAnotherBill()
+  }
+
   const resetFormForAnotherBill = () => {
     setSelectedItems([])
+    setAdditionalExpenses([])
     setRemarks("")
     setAdvance(0)
     setVehicleNumber("")
     setDriverName("")
     setDriverPhone("")
     setSavedSaleId(null)
+    setEditingSaleId(null)
+    setEditingInvoiceNumber(null)
   }
 
   const handlePdfAction = async (action: 'download' | 'print') => {
@@ -312,8 +485,23 @@ export function Sales() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {/* Sales Form */}
         <div className="bg-card p-6 rounded-xl border shadow-sm md:col-span-3 space-y-4 min-h-[500px]">
+          {editingSaleId && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded-lg flex justify-between items-center mb-2">
+              <div className="text-xs font-semibold flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-blue-600" />
+                <span>Editing Invoice {editingInvoiceNumber ? `#${editingInvoiceNumber}` : ''}</span>
+              </div>
+              <button 
+                onClick={cancelEdit}
+                className="text-xs text-blue-700 hover:text-blue-900 font-bold px-2.5 py-1 bg-white border border-blue-300 rounded shadow-sm hover:bg-blue-50 transition-colors"
+              >
+                {t("cancel", lang)}
+              </button>
+            </div>
+          )}
+
           <h2 className="text-lg font-semibold border-b pb-2 mb-4 flex items-center">
-            <Banknote className="w-5 h-5 mr-2 text-primary" /> Invoice Details
+            <Banknote className="w-5 h-5 mr-2 text-primary" /> {t("invoiceDetails", lang)}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="relative" ref={dropdownRef}>
@@ -410,7 +598,7 @@ export function Sales() {
           {/* Dynamic Item Entry */}
           <div className="mt-8 border rounded-lg overflow-hidden">
             <div className="bg-muted p-3 flex justify-between items-center border-b">
-              <h3 className="font-semibold">Invoice Items</h3>
+              <h3 className="font-semibold">{t("invoiceItems", lang)}</h3>
               {!savedSaleId && (
                 <button onClick={() => setIsItemModalOpen(true)} className="bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-sm flex items-center font-medium hover:bg-primary/90">
                   <Plus className="w-4 h-4 mr-1" /> Add Item
@@ -463,6 +651,87 @@ export function Sales() {
             </div>
           </div>
 
+          {/* Additional Expenses Section */}
+          <div className="mt-6 border rounded-lg overflow-hidden">
+            <div className="bg-muted p-3 flex justify-between items-center border-b">
+              <div>
+                <h3 className="font-semibold text-foreground">
+                  {t("additionalExpenses", lang)}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  {lang === 'te' 
+                    ? "వాన్ ఛార్జీలు, లోడింగ్ కూలీలు, రవాణా ఖర్చులు మొదలైనవి" 
+                    : "Van charges, loading wages, transport & delivery expenses"}
+                </p>
+              </div>
+              {!savedSaleId && (
+                <button 
+                  onClick={handleAddExpense} 
+                  className="bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-sm flex items-center font-medium hover:bg-primary/90 transition-colors shadow-sm"
+                >
+                  <Plus className="w-4 h-4 mr-1" /> {t("addExpense", lang)}
+                </button>
+              )}
+            </div>
+            
+            <div className="p-3 bg-muted/5 space-y-2">
+              <datalist id="expense-suggestions">
+                <option value="Van Charges" />
+                <option value="Loading Charges" />
+                <option value="Loading Workers Wages" />
+                <option value="Transport Charges" />
+                <option value="Driver Charges" />
+                <option value="Other Expenses" />
+              </datalist>
+
+              {additionalExpenses.map((exp) => (
+                <div key={exp.id} className="flex items-center gap-3 bg-background p-2.5 rounded-lg border shadow-sm">
+                  <div className="flex-1">
+                    <input 
+                      type="text" 
+                      list="expense-suggestions"
+                      placeholder={lang === 'te' ? "ఖర్చు పేరు (ఉదా: Van Charges)" : "Expense Name (e.g. Van Charges, Loading Wages)"}
+                      className="w-full border p-2 rounded text-sm bg-background font-medium"
+                      value={exp.name}
+                      onChange={e => updateExpense(exp.id, 'name', e.target.value)}
+                      disabled={!!savedSaleId}
+                    />
+                  </div>
+                  <div className="w-44 flex items-center gap-1.5">
+                    <span className="text-sm font-bold text-muted-foreground">₹</span>
+                    <input 
+                      type="number" 
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      className="w-full border p-2 rounded text-sm font-semibold text-right bg-background"
+                      value={exp.amount || ""}
+                      onChange={e => updateExpense(exp.id, 'amount', e.target.value)}
+                      disabled={!!savedSaleId}
+                    />
+                  </div>
+                  {!savedSaleId && (
+                    <button 
+                      onClick={() => removeExpense(exp.id)} 
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded transition-colors"
+                      title={t("delete", lang)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              {additionalExpenses.length === 0 && (
+                <div className="py-4 text-center text-xs text-muted-foreground">
+                  {lang === 'te' 
+                    ? "అదనపు ఖర్చులు ఏవీ జోడించబడలేదు. ఖర్చులను జోడించడానికి \"+ ఖర్చును జోడించు\" క్లిక్ చేయండి."
+                    : "No additional expenses added. Click \"+ Add Expense\" to add delivery/loading charges."}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="mt-8 pt-6 border-t grid grid-cols-1 md:grid-cols-2 gap-8">
             <div>
               <label className="block text-sm font-medium mb-1">Remarks</label>
@@ -475,20 +744,39 @@ export function Sales() {
                 <span className="text-primary">{totalQuantity} Units</span>
               </div>
               <div className="flex justify-between items-center text-sm">
-                <span className="font-semibold text-slate-700">Advance (₹):</span>
+                <span className="font-semibold text-slate-700">{t("itemsTotal", lang)}:</span>
+                <span className="font-bold text-foreground">₹{formatInr(itemsTotal)}</span>
+              </div>
+              {additionalExpensesTotal > 0 && (
+                <div className="flex justify-between items-center text-sm text-slate-700">
+                  <span className="font-semibold">{t("additionalExpensesTotal", lang)}:</span>
+                  <span className="font-bold text-purple-700">+ ₹{formatInr(additionalExpensesTotal)}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center text-sm">
+                <span className="font-semibold text-slate-700">{t("advance", lang)} (₹):</span>
                 <input 
                   type="number" 
+                  min="0"
                   step="0.01"
                   className="w-32 border p-1 rounded text-sm text-right font-bold bg-background"
                   value={advance || ''}
-                  onChange={e => setAdvance(Number(e.target.value))}
+                  onChange={e => setAdvance(Math.max(0, Number(e.target.value) || 0))}
                   disabled={!!savedSaleId}
                   placeholder="0.00"
                 />
               </div>
+              {advanceVal > 0 && (
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-muted-foreground">{t("balance", lang)}:</span>
+                  <span className={`font-bold ${remainingBalance > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                    ₹{formatInr(remainingBalance)}
+                  </span>
+                </div>
+              )}
               <div className="border-t my-2 pt-2"></div>
               <div className="flex justify-between items-center text-lg font-bold">
-                <span>Grand Total:</span>
+                <span>{t("grandTotal", lang)}:</span>
                 <span className="text-primary text-2xl">₹{formatInr(grandTotal)}</span>
               </div>
             </div>
@@ -499,8 +787,8 @@ export function Sales() {
         <div className="space-y-6">
           <div className="bg-card p-6 rounded-xl border shadow-sm flex flex-col gap-3">
             {!savedSaleId ? (
-              <button onClick={handleSaveSale} disabled={loading} className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium flex justify-center items-center hover:bg-primary/90 disabled:opacity-50">
-                <Save className="w-5 h-5 mr-2" /> {loading ? "Saving..." : "Save Invoice"}
+              <button onClick={handleSaveSale} disabled={loading} className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium flex justify-center items-center hover:bg-primary/90 disabled:opacity-50 transition-colors shadow-sm">
+                <Save className="w-5 h-5 mr-2" /> {loading ? "Saving..." : (editingSaleId ? (lang === 'te' ? "ఇన్వాయిస్ అప్‌డేట్ చేయి" : "Update Invoice") : t("saveInvoice", lang))}
               </button>
             ) : (
               <div className="space-y-2">
@@ -531,14 +819,14 @@ export function Sales() {
           
           <div className="bg-card p-6 rounded-xl border shadow-sm">
             <h2 className="font-semibold mb-4 flex items-center border-b pb-2">
-              <List className="w-4 h-4 mr-2" /> Recent Sales
+              <List className="w-4 h-4 mr-2" /> {t("recentSales", lang)}
             </h2>
             <div className="space-y-3 overflow-y-auto max-h-[400px] pr-2">
               {salesList.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No recent sales.</p>
+                <p className="text-sm text-muted-foreground">{t("noRecentSales", lang)}</p>
               ) : salesList.map(sale => (
-                <div key={sale.id} className="border p-3 rounded-lg flex justify-between items-center text-sm bg-muted/30">
-                  <div>
+                <div key={sale.id} className="border p-3 rounded-lg flex justify-between items-center text-sm bg-muted/30 hover:bg-muted/50 transition-colors">
+                  <div className="flex-1 mr-2">
                     <div className="font-semibold text-primary">{sale.buyer_name}</div>
                     <div className="text-xs text-muted-foreground">
                       {sale.date} {sale.invoice_number ? `• ${sale.invoice_number}` : ''} {sale.vehicle_number ? `• Vehicle: ${sale.vehicle_number}` : ''}
@@ -546,10 +834,21 @@ export function Sales() {
                     <div className="text-xs text-muted-foreground">
                       Driver: {sale.driver_name || '-'} ({sale.driver_phone || '-'})
                     </div>
+                    {Array.isArray(sale.additional_expenses) && sale.additional_expenses.length > 0 && (
+                      <div className="text-[11px] text-purple-700 font-medium mt-0.5">
+                        +{sale.additional_expenses.length} Expense(s): ₹{formatInr(sale.additional_expenses.reduce((s: number, e: any) => s + Number(e.amount || 0), 0))}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex flex-col items-end gap-1">
                     <div className="font-bold">₹{formatInr(sale.total_amount)}</div>
                     <div className={`text-xs ${sale.payment_status === 'Completed' ? 'text-green-600' : 'text-orange-500'}`}>{sale.payment_status}</div>
+                    <button 
+                      onClick={() => handleEditSale(sale)}
+                      className="text-xs text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 flex items-center gap-1 font-semibold mt-1"
+                    >
+                      <Edit2 className="w-3 h-3" /> {t("edit", lang)}
+                    </button>
                   </div>
                 </div>
               ))}

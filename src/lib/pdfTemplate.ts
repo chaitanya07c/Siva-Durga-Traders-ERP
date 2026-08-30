@@ -16,6 +16,9 @@ export type PDFBillData = {
   metadataLeft: string[]
   metadataRight: string[]
   items: PDFItem[]
+  itemsTotal?: number
+  additionalExpenses?: { name: string, amount: number }[]
+  additionalExpensesTotal?: number
   grandTotal: number
 }
 
@@ -147,7 +150,9 @@ export const generateProfessionalPDF = async (
       const displayItems = bill.items.filter(item => item && item.quantity > 0 && item.total > 0)
       const tableHeight = 8 + (displayItems.length * 7)
       const metadataHeight = Math.max(bill.metadataLeft.length, bill.metadataRight.length) * 5 + 5
-      const billHeight = metadataHeight + tableHeight + 10
+      const hasExpenses = bill.additionalExpenses && bill.additionalExpenses.length > 0
+      const expensesHeight = hasExpenses ? (12 + (bill.additionalExpenses!.length * 5.5) + 12) : 0
+      const billHeight = metadataHeight + tableHeight + (hasExpenses ? expensesHeight : 0) + 12
 
       if (y + billHeight > 275) {
         doc.addPage()
@@ -228,15 +233,74 @@ export const generateProfessionalPDF = async (
       doc.line(15, tableY, 195, tableY) 
       doc.line(15, tableY + totalTableHeight, 195, tableY + totalTableHeight) 
 
-      // Grand Total
-      const grandTotalY = tableY + totalTableHeight + 6
-      doc.setFont("helvetica", "bold")
-      doc.setFontSize(11)
-      doc.setTextColor(30, 30, 30)
-      doc.text("GRAND TOTAL:", 155, grandTotalY, { align: "right" })
-      doc.text(`Rs ${formatInr(bill.grandTotal || 0)}`, 193, grandTotalY, { align: "right" })
+      if (hasExpenses) {
+        // Items Total
+        const itemsTotalY = tableY + totalTableHeight + 5.5
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(9.5)
+        doc.setTextColor(60, 70, 80)
+        doc.text("ITEMS TOTAL:", 155, itemsTotalY, { align: "right" })
+        doc.text(`Rs ${formatInr(bill.itemsTotal || 0)}`, 193, itemsTotalY, { align: "right" })
 
-      y = grandTotalY + 10
+        // Additional Expenses Section
+        const expStartY = itemsTotalY + 3
+        doc.setFillColor(241, 245, 249)
+        doc.rect(95, expStartY, 100, 6, "F")
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(8.5)
+        doc.setTextColor(51, 65, 85)
+        doc.text("ADDITIONAL EXPENSES", 98, expStartY + 4.2)
+        doc.text("AMOUNT", 193, expStartY + 4.2, { align: "right" })
+
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(8.5)
+        doc.setTextColor(50, 50, 50)
+        
+        bill.additionalExpenses!.forEach((exp, ei) => {
+          const ey = expStartY + 6 + (ei * 5.2)
+          doc.setDrawColor(241, 245, 249)
+          doc.setLineWidth(0.2)
+          doc.line(95, ey + 5.2, 195, ey + 5.2)
+          doc.text(exp.name, 98, ey + 3.8)
+          doc.text(`Rs ${formatInr(exp.amount || 0)}`, 193, ey + 3.8, { align: "right" })
+        })
+
+        const expEndLineY = expStartY + 6 + (bill.additionalExpenses!.length * 5.2)
+        doc.setDrawColor(203, 213, 225)
+        doc.setLineWidth(0.4)
+        doc.line(95, expEndLineY, 195, expEndLineY)
+
+        const expTotalY = expEndLineY + 5
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(9)
+        doc.setTextColor(60, 70, 80)
+        doc.text("ADDITIONAL EXPENSES TOTAL:", 155, expTotalY, { align: "right" })
+        doc.text(`Rs ${formatInr(bill.additionalExpensesTotal || 0)}`, 193, expTotalY, { align: "right" })
+
+        // Grand Total
+        const grandTotalY = expTotalY + 6.5
+        doc.setDrawColor(148, 163, 184)
+        doc.setLineWidth(0.5)
+        doc.line(95, grandTotalY - 2, 195, grandTotalY - 2)
+
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(11)
+        doc.setTextColor(30, 30, 30)
+        doc.text("GRAND TOTAL:", 155, grandTotalY + 2.5, { align: "right" })
+        doc.text(`Rs ${formatInr(bill.grandTotal || 0)}`, 193, grandTotalY + 2.5, { align: "right" })
+
+        y = grandTotalY + 11
+      } else {
+        // Standard Grand Total
+        const grandTotalY = tableY + totalTableHeight + 6
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(11)
+        doc.setTextColor(30, 30, 30)
+        doc.text("GRAND TOTAL:", 155, grandTotalY, { align: "right" })
+        doc.text(`Rs ${formatInr(bill.grandTotal || 0)}`, 193, grandTotalY, { align: "right" })
+
+        y = grandTotalY + 10
+      }
     })
 
     // Payment Summary Section (Simplified ERP Layout)

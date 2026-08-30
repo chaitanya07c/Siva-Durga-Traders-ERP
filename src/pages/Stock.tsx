@@ -230,14 +230,16 @@ export function Stock() {
 
       allSales?.forEach((sale: any) => {
         const itemsObj = sale.items || {}
-        Object.values(itemsObj).forEach((item: any) => {
-          const name = item.name
-          if (!name) return
+        Object.entries(itemsObj)
+          .filter(([k]) => k !== '_additional_expenses')
+          .forEach(([_, item]: any) => {
+            const name = item.name
+            if (!name) return
 
-          itemSet.add(name)
-          const qty = Number(item.quantity || 0)
-          overallMap[name] = (overallMap[name] || 0) + qty
-        })
+            itemSet.add(name)
+            const qty = Number(item.quantity || 0)
+            overallMap[name] = (overallMap[name] || 0) + qty
+          })
       })
 
       const uniqueSoldItems = Array.from(itemSet).sort()
@@ -250,14 +252,16 @@ export function Stock() {
         if (!saleDate) return
         if (saleDate >= startDate && saleDate <= endDate) {
           const itemsObj = sale.items || {}
-          Object.values(itemsObj).forEach((item: any) => {
-            const name = item.name
-            if (!name) return
+          Object.entries(itemsObj)
+            .filter(([k]) => k !== '_additional_expenses')
+            .forEach(([_, item]: any) => {
+              const name = item.name
+              if (!name) return
 
-            const qty = Number(item.quantity || 0)
-            rangeMap[name] = (rangeMap[name] || 0) + qty
-            periodTotalSold += qty
-          })
+              const qty = Number(item.quantity || 0)
+              rangeMap[name] = (rangeMap[name] || 0) + qty
+              periodTotalSold += qty
+            })
         }
       })
 

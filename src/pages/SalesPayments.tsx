@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet, Trash2, Edit2 } from "lucide-react"
+import { Printer, Download, Share2, CheckCircle2, Eye, Clock, Search, Wallet, Trash2, Edit2, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { fetchSalesBillBreakdowns, generateSalesCombinedPDF, shareSalesWhatsApp, formatQuantity } from "@/lib/salesPdfUtils"
 import type { GroupedSaleSession, SalesBillBreakdown } from "@/lib/salesPdfUtils"
@@ -36,6 +36,7 @@ export function SalesPayments() {
   const [editInvoiceAdvance, setEditInvoiceAdvance] = useState(0)
   const [editInvoicePartialPayment, setEditInvoicePartialPayment] = useState(0)
   const [editInvoiceItems, setEditInvoiceItems] = useState<{ name: string, quantity: number, rate: number, total: number }[]>([])
+  const [editInvoiceAdditionalExpenses, setEditInvoiceAdditionalExpenses] = useState<{ name: string, amount: number }[]>([])
 
   // Delete Invoice state
   const [deletingSalesBill, setDeletingSalesBill] = useState<SalesBillBreakdown | null>(null)
@@ -374,6 +375,7 @@ export function SalesPayments() {
     setEditInvoiceAdvance(bill.advance || 0)
     setEditInvoicePartialPayment(bill.partial_payment || 0)
     setEditInvoiceItems(bill.items.map(item => ({ ...item })))
+    setEditInvoiceAdditionalExpenses(Array.isArray(bill.additionalExpenses) ? bill.additionalExpenses.map(e => ({ name: e.name, amount: Number(e.amount || 0) })) : [])
   }
 
   const handleEditInvoiceItemChange = (index: number, field: 'quantity' | 'rate', value: number) => {
@@ -383,6 +385,26 @@ export function SalesPayments() {
       copy[index].total = Number((copy[index].quantity * copy[index].rate).toFixed(2))
       return copy
     })
+  }
+
+  const handleAddEditInvoiceExpense = () => {
+    setEditInvoiceAdditionalExpenses(prev => [...prev, { name: "", amount: 0 }])
+  }
+
+  const handleEditInvoiceExpenseChange = (index: number, field: 'name' | 'amount', value: any) => {
+    setEditInvoiceAdditionalExpenses(prev => {
+      const copy = [...prev]
+      if (field === 'amount') {
+        copy[index] = { ...copy[index], amount: Math.max(0, Number(value) || 0) }
+      } else {
+        copy[index] = { ...copy[index], name: value }
+      }
+      return copy
+    })
+  }
+
+  const handleRemoveEditInvoiceExpense = (index: number) => {
+    setEditInvoiceAdditionalExpenses(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleSaveEditedInvoice = async () => {
@@ -397,31 +419,55 @@ export function SalesPayments() {
       return toast.error("Driver Phone Number must be exactly 10 digits")
     }
 
+    for (const exp of editInvoiceAdditionalExpenses) {
+      if (Number(exp.amount) < 0) {
+        return toast.error("Expense amount cannot be negative")
+      }
+    }
+
     try {
-      const totalAmount = editInvoiceItems.reduce((sum, item) => sum + item.total, 0)
+      const itemsTotal = editInvoiceItems.reduce((sum, item) => sum + item.total, 0)
       const itemsJson = editInvoiceItems.reduce((acc, curr) => ({
         ...acc,
         [curr.name]: curr
       }), {})
 
+      const formattedExpenses = editInvoiceAdditionalExpenses
+        .filter(e => e.name.trim() || Number(e.amount) > 0)
+        .map(e => ({ name: e.name.trim() || 'Expense', amount: Number(e.amount) || 0 }))
+      const expensesTotal = formattedExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0)
+      const totalAmount = Number((itemsTotal + expensesTotal).toFixed(2))
+
       const advVal = Number(editInvoiceAdvance || 0)
       const formattedVehicle = editInvoiceVehicleNumber.trim() ? formatVehicleNumber(editInvoiceVehicleNumber) : null
 
-      const { error } = await supabase
+      const updatePayload: any = {
+        date: editInvoiceDate,
+        vehicle_number: formattedVehicle,
+        driver_name: editInvoiceDriverName.trim() || null,
+        driver_phone: editInvoiceDriverPhone.trim().replace(/\D/g, '') || null,
+        total_amount: totalAmount,
+        advance: advVal,
+        remarks: editInvoiceRemarks,
+        partial_payment: editingInvoice.partial_payment || 0,
+        payment_status: editingInvoice.payment_status || 'Pending',
+        items: {
+          ...itemsJson,
+          ...(formattedExpenses.length > 0 ? { _additional_expenses: formattedExpenses } : {})
+        },
+        additional_expenses: formattedExpenses
+      }
+
+      let { error } = await supabase
         .from('sales')
-        .update({
-          date: editInvoiceDate,
-          vehicle_number: formattedVehicle,
-          driver_name: editInvoiceDriverName.trim() || null,
-          driver_phone: editInvoiceDriverPhone.trim().replace(/\D/g, '') || null,
-          total_amount: totalAmount,
-          advance: advVal,
-          remarks: editInvoiceRemarks,
-          partial_payment: editingInvoice.partial_payment || 0,
-          payment_status: editingInvoice.payment_status || 'Pending',
-          items: itemsJson
-        })
+        .update(updatePayload)
         .eq('id', editingInvoice.id)
+
+      if (error && (error.message?.includes('additional_expenses') || error.code === 'PGRST204')) {
+        delete updatePayload.additional_expenses
+        const retry = await supabase.from('sales').update(updatePayload).eq('id', editingInvoice.id)
+        error = retry.error
+      }
 
       if (error) throw error
 
@@ -742,7 +788,7 @@ export function SalesPayments() {
                       </div>
                       <span>₹{formatInr(bill.grandTotal)}</span>
                     </div>
-                    <div className="p-4">
+                    <div className="p-4 space-y-3">
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead className="text-muted-foreground border-b text-left">
@@ -767,6 +813,31 @@ export function SalesPayments() {
                           </tbody>
                         </table>
                       </div>
+
+                      {/* Additional Expenses in Details */}
+                      {Array.isArray(bill.additionalExpenses) && bill.additionalExpenses.length > 0 && (
+                        <div className="border-t pt-3 bg-slate-50 p-3 rounded-lg space-y-2">
+                          <div className="flex justify-between items-center text-xs font-semibold text-muted-foreground">
+                            <span>{t("itemsTotal", lang)}:</span>
+                            <span className="font-bold text-slate-700">₹{formatInr(bill.itemsTotal || bill.items.reduce((s, i) => s + i.total, 0))}</span>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <span className="text-xs font-bold text-purple-700 block uppercase tracking-wider">{t("additionalExpenses", lang)}</span>
+                            {bill.additionalExpenses.map((exp, expIdx) => (
+                              <div key={expIdx} className="flex justify-between text-xs text-slate-600 pl-2">
+                                <span>• {exp.name}</span>
+                                <span className="font-medium">₹{formatInr(exp.amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="border-t pt-1.5 flex justify-between items-center text-xs font-bold text-slate-700">
+                            <span>{t("additionalExpensesTotal", lang)}:</span>
+                            <span className="text-purple-700">+ ₹{formatInr(bill.additionalExpensesTotal || 0)}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1129,12 +1200,12 @@ export function SalesPayments() {
                 <div>
                   <label className="block text-xs font-semibold text-muted-foreground mb-1">{t("driverPhone", lang)}</label>
                   <input 
-                    type="tel"
+                    type="tel" 
                     maxLength={10}
-                    placeholder="10 digit phone number"
-                    className="w-full border p-2 rounded text-sm bg-background font-mono"
-                    value={editInvoiceDriverPhone}
-                    onChange={e => setEditInvoiceDriverPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="10 digit phone number" 
+                    className="w-full border p-2 rounded text-sm bg-background font-mono" 
+                    value={editInvoiceDriverPhone} 
+                    onChange={e => setEditInvoiceDriverPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} 
                   />
                 </div>
               </div>
@@ -1152,22 +1223,85 @@ export function SalesPayments() {
                     <div key={idx} className="grid grid-cols-3 gap-2 items-center">
                       <div className="text-xs font-medium text-slate-800 truncate">{item.name}</div>
                       <input 
-                        type="number"
-                        className="border p-1 rounded text-xs text-center font-medium bg-background"
-                        value={item.quantity || ''}
-                        onChange={e => handleEditInvoiceItemChange(idx, 'quantity', Number(e.target.value))}
-                        placeholder="0"
+                        type="number" 
+                        className="border p-1 rounded text-xs text-center font-medium bg-background" 
+                        value={item.quantity || ''} 
+                        onChange={e => handleEditInvoiceItemChange(idx, 'quantity', Number(e.target.value))} 
+                        placeholder="0" 
                       />
                       <input 
-                        type="number"
-                        step="0.01"
-                        className="border p-1 rounded text-xs text-center font-medium bg-background"
-                        value={item.rate || ''}
-                        onChange={e => handleEditInvoiceItemChange(idx, 'rate', Number(e.target.value))}
-                        placeholder="0.00"
+                        type="number" 
+                        step="0.01" 
+                        className="border p-1 rounded text-xs text-center font-medium bg-background" 
+                        value={item.rate || ''} 
+                        onChange={e => handleEditInvoiceItemChange(idx, 'rate', Number(e.target.value))} 
+                        placeholder="0.00" 
                       />
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Additional Expenses Section in Edit Invoice Modal */}
+              <div className="space-y-2 border-t pt-3">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-bold text-slate-800">{t("additionalExpenses", lang)}</h3>
+                  <button 
+                    type="button"
+                    onClick={handleAddEditInvoiceExpense}
+                    className="text-xs bg-primary text-primary-foreground px-2.5 py-1 rounded font-medium hover:bg-primary/90 transition-colors shadow-sm flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> {t("addExpense", lang)}
+                  </button>
+                </div>
+
+                <datalist id="edit-expense-suggestions">
+                  <option value="Van Charges" />
+                  <option value="Loading Charges" />
+                  <option value="Loading Workers Wages" />
+                  <option value="Transport Charges" />
+                  <option value="Driver Charges" />
+                  <option value="Other Expenses" />
+                </datalist>
+
+                <div className="bg-slate-50 p-3 rounded-lg border space-y-2">
+                  {editInvoiceAdditionalExpenses.map((exp, expIdx) => (
+                    <div key={expIdx} className="flex items-center gap-2">
+                      <input 
+                        type="text" 
+                        list="edit-expense-suggestions"
+                        placeholder="Expense Name (e.g. Van Charges)"
+                        className="flex-1 border p-1.5 rounded text-xs bg-background"
+                        value={exp.name}
+                        onChange={e => handleEditInvoiceExpenseChange(expIdx, 'name', e.target.value)}
+                      />
+                      <div className="w-28 flex items-center gap-1">
+                        <span className="text-xs font-bold text-muted-foreground">₹</span>
+                        <input 
+                          type="number" 
+                          min="0" 
+                          step="0.01" 
+                          placeholder="0.00" 
+                          className="w-full border p-1.5 rounded text-xs text-right font-semibold bg-background" 
+                          value={exp.amount || ''} 
+                          onChange={e => handleEditInvoiceExpenseChange(expIdx, 'amount', e.target.value)} 
+                        />
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => handleRemoveEditInvoiceExpense(expIdx)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded transition-colors"
+                        title={t("delete", lang)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {editInvoiceAdditionalExpenses.length === 0 && (
+                    <div className="text-center py-2 text-xs text-muted-foreground">
+                      No additional expenses added. Click "+ Add Expense" to add.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1175,23 +1309,23 @@ export function SalesPayments() {
                 <div>
                   <label className="block text-xs font-semibold text-muted-foreground mb-1">Advance Amount (₹)</label>
                   <input 
-                    type="number"
-                    step="0.01"
-                    className="w-full border p-2 rounded text-sm font-semibold bg-background"
-                    value={editInvoiceAdvance || ''}
-                    onChange={e => setEditInvoiceAdvance(Number(e.target.value))}
-                    placeholder="0.00"
+                    type="number" 
+                    step="0.01" 
+                    className="w-full border p-2 rounded text-sm font-semibold bg-background" 
+                    value={editInvoiceAdvance || ''} 
+                    onChange={e => setEditInvoiceAdvance(Number(e.target.value))} 
+                    placeholder="0.00" 
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-muted-foreground mb-1">Additional Paid (₹)</label>
                   <input 
-                    type="number"
-                    step="0.01"
-                    className="w-full border p-2 rounded text-sm font-semibold bg-background"
-                    value={editInvoicePartialPayment || ''}
-                    onChange={e => setEditInvoicePartialPayment(Number(e.target.value))}
-                    placeholder="0.00"
+                    type="number" 
+                    step="0.01" 
+                    className="w-full border p-2 rounded text-sm font-semibold bg-background" 
+                    value={editInvoicePartialPayment || ''} 
+                    onChange={e => setEditInvoicePartialPayment(Number(e.target.value))} 
+                    placeholder="0.00" 
                   />
                 </div>
               </div>
@@ -1199,24 +1333,38 @@ export function SalesPayments() {
               <div>
                 <label className="block text-xs font-semibold text-muted-foreground mb-1">Remarks</label>
                 <textarea 
-                  className="w-full border p-2 rounded text-xs"
-                  rows={2}
-                  value={editInvoiceRemarks}
-                  onChange={e => setEditInvoiceRemarks(e.target.value)}
-                  placeholder="Enter remarks..."
+                  className="w-full border p-2 rounded text-xs" 
+                  rows={2} 
+                  value={editInvoiceRemarks} 
+                  onChange={e => setEditInvoiceRemarks(e.target.value)} 
+                  placeholder="Enter remarks..." 
                 />
               </div>
 
-              <div className="bg-slate-100 p-3 rounded-lg border space-y-1.5 text-sm font-semibold">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Subtotal Amount:</span>
-                  <span>₹{formatInr(editInvoiceItems.reduce((sum, item) => sum + item.total, 0))}</span>
-                </div>
-                <div className="flex justify-between text-primary text-base font-bold">
-                  <span>Grand Total:</span>
-                  <span>₹{formatInr(editInvoiceItems.reduce((sum, item) => sum + item.total, 0))}</span>
-                </div>
-              </div>
+              {(() => {
+                const editItemsTotal = editInvoiceItems.reduce((sum, item) => sum + item.total, 0)
+                const editExpensesTotal = editInvoiceAdditionalExpenses.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0)
+                const editGrandTotal = Number((editItemsTotal + editExpensesTotal).toFixed(2))
+
+                return (
+                  <div className="bg-slate-100 p-3 rounded-lg border space-y-1.5 text-sm font-semibold">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{t("itemsTotal", lang)}:</span>
+                      <span>₹{formatInr(editItemsTotal)}</span>
+                    </div>
+                    {editExpensesTotal > 0 && (
+                      <div className="flex justify-between text-xs text-purple-700">
+                        <span>{t("additionalExpensesTotal", lang)}:</span>
+                        <span>+ ₹{formatInr(editExpensesTotal)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-primary text-base font-bold border-t pt-1">
+                      <span>{t("grandTotal", lang)}:</span>
+                      <span>₹{formatInr(editGrandTotal)}</span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             <div className="p-4 border-t bg-slate-50 flex gap-3">

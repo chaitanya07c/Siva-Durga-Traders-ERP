@@ -27,6 +27,9 @@ export type SalesBillBreakdown = {
   driverPhone?: string | null
   date: string
   items: { name: string, quantity: number, rate: number, total: number, unit?: string }[]
+  itemsTotal?: number
+  additionalExpenses?: { name: string, amount: number }[]
+  additionalExpensesTotal?: number
   grandTotal: number
   advance?: number
   remarks?: string | null
@@ -45,13 +48,27 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
 
   const reconstructedBills = fullBills?.map(fb => {
     const itemsJson = fb.items || {}
-    const formattedItems = Object.values(itemsJson).map((i: any) => ({
-      name: lang === 'te' && i.name_te ? i.name_te : i.name,
-      quantity: i.quantity,
-      unit: i.unit,
-      rate: i.rate,
-      total: i.total
+    const formattedItems = Object.entries(itemsJson)
+      .filter(([k]) => k !== '_additional_expenses')
+      .map(([_, i]: [string, any]) => ({
+        name: lang === 'te' && i.name_te ? i.name_te : i.name,
+        quantity: i.quantity,
+        unit: i.unit,
+        rate: i.rate,
+        total: i.total
+      }))
+
+    const itemsTotal = formattedItems.reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0)
+    const rawExpenses = Array.isArray(fb.additional_expenses) && fb.additional_expenses.length > 0
+      ? fb.additional_expenses
+      : (Array.isArray(fb.items?._additional_expenses) ? fb.items._additional_expenses : [])
+
+    const expensesArray: { name: string, amount: number }[] = rawExpenses.map((e: any) => ({
+      name: String(e.name || ''),
+      amount: Number(e.amount || 0)
     }))
+    const expensesTotal = expensesArray.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0)
+    const grandTotal = Number(fb.total_amount ?? (itemsTotal + expensesTotal))
     
     return {
       id: fb.id,
@@ -61,7 +78,10 @@ export const fetchSalesBillBreakdowns = async (session: GroupedSaleSession, lang
       driverPhone: fb.driver_phone,
       date: fb.date,
       items: formattedItems,
-      grandTotal: fb.total_amount,
+      itemsTotal,
+      additionalExpenses: expensesArray,
+      additionalExpensesTotal: expensesTotal,
+      grandTotal,
       advance: fb.advance || 0,
       remarks: fb.remarks,
       partial_payment: fb.partial_payment,
@@ -208,6 +228,9 @@ export const generateSalesCombinedPDF = async (
           metadataLeft,
           metadataRight,
           items: displayItems,
+          itemsTotal: bill.itemsTotal,
+          additionalExpenses: bill.additionalExpenses,
+          additionalExpensesTotal: bill.additionalExpensesTotal,
           grandTotal: bill.grandTotal || 0
         }
       }),

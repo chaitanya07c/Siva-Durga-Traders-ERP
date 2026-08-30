@@ -167,7 +167,13 @@ const translations = {
     recentSales: "Recent Sales",
     noRecentSales: "No recent sales.",
     invoiceDetails: "Invoice Details",
-    invoiceItems: "Invoice Items"
+    invoiceItems: "Invoice Items",
+    additionalExpenses: "Additional Expenses",
+    addExpense: "Add Expense",
+    expenseName: "Expense Name",
+    expenseAmount: "Amount (₹)",
+    additionalExpensesTotal: "Additional Expenses Total",
+    itemsTotal: "Items Total"
   },
   te: {
     // Sidebar & Layout
@@ -337,7 +343,13 @@ const translations = {
     recentSales: "ఇటీవలి అమ్మకాలు",
     noRecentSales: "ఇటీవలి అమ్మకాలు లేవు.",
     invoiceDetails: "ఇన్వాయిస్ వివరాలు",
-    invoiceItems: "ఇన్వాయిస్ వస్తువులు"
+    invoiceItems: "ఇన్వాయిస్ వస్తువులు",
+    additionalExpenses: "అదనపు ఖర్చులు",
+    addExpense: "ఖర్చును జోడించు",
+    expenseName: "ఖర్చు పేరు",
+    expenseAmount: "మొత్తం (₹)",
+    additionalExpensesTotal: "మొత్తం అదనపు ఖర్చులు",
+    itemsTotal: "వస్తువుల మొత్తం"
   }
 }
 
