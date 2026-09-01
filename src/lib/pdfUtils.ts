@@ -19,6 +19,7 @@ export type GroupedSession = {
   session_id?: string
   session_partial_payment?: number
   payment_date?: string | null
+  payment_history?: { id?: string, date: string, amount: number, remainingBalance?: number, remarks?: string }[]
 }
 
 export type BillBreakdown = {
@@ -36,6 +37,7 @@ export type BillBreakdown = {
   session_partial_payment?: number
   payment_date?: string | null
   payment_status?: string
+  payment_history?: { id?: string, date: string, amount: number, remainingBalance?: number, remarks?: string }[]
 }
 
 export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' | 'te'): Promise<{shop: Shop, bills: BillBreakdown[]}> => {
@@ -80,7 +82,8 @@ export const fetchBillBreakdowns = async (session: GroupedSession, lang?: 'en' |
       shop: shopObj,
       session_partial_payment: fb.session_partial_payment || 0,
       payment_date: fb.payment_date,
-      payment_status: fb.payment_status
+      payment_status: fb.payment_status,
+      payment_history: fb.payment_history || []
     }
   }) || []
 
@@ -165,12 +168,44 @@ export const generateCombinedPDF = async (
       }
     }
     
+    // 1. Gather all genuine payment history entries from session and bills
+    const historyMap = new Map<string, { id?: string, date: string, amount: number, remainingBalance?: number, remarks?: string }>()
+
+    if (Array.isArray(session.payment_history) && session.payment_history.length > 0) {
+      session.payment_history.forEach(h => {
+        if (h && Number(h.amount) > 0 && h.date) {
+          if (h.remarks === "Advance Payment") return
+          const key = (h as any).id || `${h.date}_${h.amount}`
+          if (!historyMap.has(key)) {
+            historyMap.set(key, { id: (h as any).id, date: h.date, amount: Number(h.amount), remarks: h.remarks })
+          }
+        }
+      })
+    }
+
+    bills.forEach(b => {
+      if (Array.isArray(b.payment_history) && b.payment_history.length > 0) {
+        b.payment_history.forEach(h => {
+          if (h && Number(h.amount) > 0 && h.date) {
+            if (h.remarks === "Advance Payment") return
+            const key = (h as any).id || `${h.date}_${h.amount}`
+            if (!historyMap.has(key)) {
+              historyMap.set(key, { id: (h as any).id, date: h.date, amount: Number(h.amount), remarks: h.remarks })
+            }
+          }
+        })
+      }
+    })
+
+    let paymentHistory = Array.from(historyMap.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
     const totalAdvance = bills.reduce((sum, b) => sum + (b.advance || 0), 0)
     const overallBillAmount = bills.reduce((sum, b) => sum + (b.grandTotal || 0), 0)
     const partialPaymentsSum = bills.reduce((sum, b) => sum + (b.session_partial_payment || 0), 0)
-    const partialPayment = partialPaymentsSum || session.session_partial_payment || 0
-    const totalPaid = totalAdvance + partialPayment
-    const balance = Math.max(0, overallBillAmount - totalPaid)
+    const legacyPartial = partialPaymentsSum || session.session_partial_payment || 0
+    const totalHistoryPaid = paymentHistory.reduce((sum, h) => sum + Number(h.amount || 0), 0)
+    const totalPaid = totalAdvance + (totalHistoryPaid > 0 ? totalHistoryPaid : legacyPartial)
+    const balance = Math.max(0, Number((overallBillAmount - totalPaid).toFixed(2)))
     
     let paymentStatus = "Pending"
     if (session.status === 'Completed' || balance === 0) {
@@ -179,23 +214,27 @@ export const generateCombinedPDF = async (
       paymentStatus = "Partial Paid"
     }
 
-    const historyMap = new Map<string, { date: string, amount: number }>()
-    bills.forEach(b => {
-      if (b.session_partial_payment && b.session_partial_payment > 0 && b.payment_date) {
-        const sId = b.session_id || b.id || ''
-        if (!historyMap.has(sId)) {
-          historyMap.set(sId, {
-            date: b.payment_date,
-            amount: b.session_partial_payment
-          })
-        }
-      }
-    })
-    const paymentHistory = Array.from(historyMap.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-
     const latestDateFromBills = bills.map(b => b.payment_date).filter(Boolean).sort((a, b) => new Date(b!).getTime() - new Date(a!).getTime())[0]
     const latestDateFromHistory = paymentHistory.length > 0 ? paymentHistory[paymentHistory.length - 1].date : null
     const effectivePaymentDate = session.payment_date || latestDateFromBills || latestDateFromHistory || session.date
+
+    // Fallback for legacy bills without payment_history JSONB
+    if (paymentHistory.length === 0) {
+      if (paymentStatus === 'Completed') {
+        const legacyPaid = overallBillAmount - totalAdvance
+        if (legacyPaid > 0) {
+          paymentHistory = [{
+            date: effectivePaymentDate,
+            amount: legacyPaid
+          }]
+        }
+      } else if (paymentStatus === 'Partial Paid' && legacyPartial > 0) {
+        paymentHistory = [{
+          date: effectivePaymentDate,
+          amount: legacyPartial
+        }]
+      }
+    }
 
     const documentData: PDFDocumentData = {
       title: "PURCHASE INVOICE",
@@ -247,7 +286,7 @@ export const generateCombinedPDF = async (
         overallAmount: overallBillAmount,
         advanceAmount: totalAdvance,
         balanceAmount: balance,
-        partialPaid: partialPayment,
+        partialPaid: totalHistoryPaid > 0 ? totalHistoryPaid : legacyPartial,
         status: paymentStatus,
         paymentDate: effectivePaymentDate,
         completedDate: effectivePaymentDate,
@@ -319,7 +358,7 @@ export const shareWhatsApp = async (
 export const buildCurrentSession = async (session_id: string): Promise<GroupedSession | null> => {
   const { data } = await supabase
     .from('purchases')
-    .select('id, date, grand_total, payment_status, shop_id, session_partial_payment, payment_date, shops(name, type)')
+    .select('id, date, grand_total, payment_status, shop_id, session_partial_payment, payment_date, payment_history, shops(name, type)')
     .eq('session_id', session_id)
     .in('payment_status', ['Pending', 'Partial Payment'])
 
@@ -330,6 +369,7 @@ export const buildCurrentSession = async (session_id: string): Promise<GroupedSe
     session_id,
     session_partial_payment: data[0].session_partial_payment || 0,
     payment_date: data[0].payment_date,
+    payment_history: data[0].payment_history || [],
     shop_id: data[0].shop_id,
     shop_name: (data[0].shops as any)?.name || 'Unknown',
     shop_type: (data[0].shops as any)?.type || 'Unknown',
@@ -477,16 +517,36 @@ export const generateCombinedGroupPDF = async (
           shop: shopObj,
           session_id: fb.session_id || fb.id,
           session_partial_payment: fb.session_partial_payment || 0,
-          payment_date: fb.payment_date
+          payment_date: fb.payment_date,
+          payment_history: fb.payment_history || []
         }
       })
     }
 
+    // 1. Gather all genuine payment history entries from reconstructed bills
+    const historyMap = new Map<string, { id?: string, date: string, amount: number, remainingBalance?: number, remarks?: string }>()
+    reconstructedBills.forEach(b => {
+      if (Array.isArray(b.payment_history) && b.payment_history.length > 0) {
+        b.payment_history.forEach(h => {
+          if (h && Number(h.amount) > 0 && h.date) {
+            if (h.remarks === "Advance Payment") return
+            const key = (h as any).id || `${h.date}_${h.amount}`
+            if (!historyMap.has(key)) {
+              historyMap.set(key, { id: (h as any).id, date: h.date, amount: Number(h.amount), remarks: h.remarks })
+            }
+          }
+        })
+      }
+    })
+
+    let paymentHistory = Array.from(historyMap.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
     const totalAdvance = reconstructedBills.reduce((sum, b) => sum + (b.advance || 0), 0)
     const overallBillAmount = reconstructedBills.reduce((sum, b) => sum + b.grandTotal, 0)
     const partialPaymentsSum = reconstructedBills.reduce((sum, b) => sum + (b.session_partial_payment || 0), 0)
-    const totalPaid = totalAdvance + partialPaymentsSum
-    const balanceAmount = Math.max(0, overallBillAmount - totalPaid)
+    const totalHistoryPaid = paymentHistory.reduce((sum, h) => sum + Number(h.amount || 0), 0)
+    const totalPaid = totalAdvance + (totalHistoryPaid > 0 ? totalHistoryPaid : partialPaymentsSum)
+    const balanceAmount = Math.max(0, Number((overallBillAmount - totalPaid).toFixed(2)))
 
     let paymentStatus = "Pending"
     if (balanceAmount === 0) {
@@ -495,19 +555,27 @@ export const generateCombinedGroupPDF = async (
       paymentStatus = "Partial Paid"
     }
 
-    const historyMap = new Map<string, { date: string, amount: number }>()
-    reconstructedBills.forEach(b => {
-      if (b.session_partial_payment && b.session_partial_payment > 0 && b.payment_date) {
-        const sId = b.session_id || b.id || ''
-        if (!historyMap.has(sId)) {
-          historyMap.set(sId, {
-            date: b.payment_date,
-            amount: b.session_partial_payment
-          })
+    const latestDateFromBills = reconstructedBills.map(b => b.payment_date).filter(Boolean).sort((a, b) => new Date(b!).getTime() - new Date(a!).getTime())[0]
+    const latestDateFromHistory = paymentHistory.length > 0 ? paymentHistory[paymentHistory.length - 1].date : null
+    const effectivePaymentDate = latestDateFromBills || latestDateFromHistory || _date || new Date().toISOString().split('T')[0]
+
+    // Fallback for legacy bills without payment_history JSONB
+    if (paymentHistory.length === 0) {
+      if (paymentStatus === 'Completed') {
+        const legacyPaid = overallBillAmount - totalAdvance
+        if (legacyPaid > 0) {
+          paymentHistory = [{
+            date: effectivePaymentDate,
+            amount: legacyPaid
+          }]
         }
+      } else if (paymentStatus === 'Partial Paid' && partialPaymentsSum > 0) {
+        paymentHistory = [{
+          date: effectivePaymentDate,
+          amount: partialPaymentsSum
+        }]
       }
-    })
-    const paymentHistory = Array.from(historyMap.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    }
 
     const documentData: PDFDocumentData = {
       title: "PURCHASE INVOICE",

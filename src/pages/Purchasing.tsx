@@ -200,7 +200,8 @@ export function Purchasing() {
           payment_status: 'Pending',
           remarks,
           session_id: currentSessionId,
-          session_partial_payment: 0
+          session_partial_payment: 0,
+          payment_history: []
         }])
         .select()
         .single()

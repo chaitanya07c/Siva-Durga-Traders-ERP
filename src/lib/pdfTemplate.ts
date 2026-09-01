@@ -310,7 +310,15 @@ export const generateProfessionalPDF = async (
     const advance = data.paymentSummary.advanceAmount || 0
     const balance = Math.max(0, data.paymentSummary.balanceAmount || 0)
     const overall = data.paymentSummary.overallAmount || 0
-    const paymentHistory = (data.paymentSummary.paymentHistory || []).filter(h => h && Number(h.amount) > 0)
+    const rawHistory = (data.paymentSummary.paymentHistory || []).filter(h => h && Number(h.amount) > 0)
+    const historyDedupeMap = new Map<string, { date: string, amount: number, remarks?: string | null }>()
+    rawHistory.forEach(h => {
+      const key = (h as any).id || `${h.date}_${h.amount}`
+      if (!historyDedupeMap.has(key)) {
+        historyDedupeMap.set(key, h)
+      }
+    })
+    const paymentHistory = Array.from(historyDedupeMap.values())
     
     const totalPayments = paymentHistory.reduce((sum, h) => sum + (Number(h.amount) || 0), 0)
     const partialPaid = data.paymentSummary.partialPaid || totalPayments
